@@ -537,9 +537,18 @@ private fun EditPanelContent(
             }
         }
 
-        if (editState.selectedTool == CanvasEditToolId.Brush || editState.selectedTool == CanvasEditToolId.Text) {
-            val valueLabel = if (editState.selectedTool == CanvasEditToolId.Brush) {
+        val textSizeEditableTarget = editState.inlineEditor.target is CanvasInlineEditorTarget.EditText ||
+            editState.inlineEditor.target is CanvasInlineEditorTarget.EditSticky
+        val showBrushOrTextSizeControls = editState.selectedTool == CanvasEditToolId.Brush ||
+            editState.selectedTool == CanvasEditToolId.Text ||
+            textSizeEditableTarget
+
+        if (showBrushOrTextSizeControls) {
+            val isBrushSize = editState.selectedTool == CanvasEditToolId.Brush
+            val valueLabel = if (isBrushSize) {
                 "Brush ${editState.brushWidthWorld.roundToInt()}"
+            } else if (editState.inlineEditor.target is CanvasInlineEditorTarget.EditSticky) {
+                "Sticky text ${editState.textSizeWorld.roundToInt()}"
             } else {
                 "Text ${editState.textSizeWorld.roundToInt()}"
             }
@@ -556,7 +565,7 @@ private fun EditPanelContent(
                 )
                 ToolCircleButton(
                     onClick = {
-                        if (editState.selectedTool == CanvasEditToolId.Brush) {
+                        if (isBrushSize) {
                             onBrushSizeStep(-3f)
                         } else {
                             onTextSizeStep(-4f)
@@ -573,7 +582,7 @@ private fun EditPanelContent(
                 }
                 ToolCircleButton(
                     onClick = {
-                        if (editState.selectedTool == CanvasEditToolId.Brush) {
+                        if (isBrushSize) {
                             onBrushSizeStep(3f)
                         } else {
                             onTextSizeStep(4f)

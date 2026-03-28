@@ -24,6 +24,7 @@ import com.darksok.canvaslauncher.core.packages.events.PackageEventsBus
 import com.darksok.canvaslauncher.core.packages.icon.IconBitmapStore
 import com.darksok.canvaslauncher.core.performance.MiniMapProjector
 import com.darksok.canvaslauncher.core.performance.ViewportCuller
+import com.darksok.canvaslauncher.domain.repository.IconCacheGateway
 import com.darksok.canvaslauncher.domain.usecase.HandlePackageAddedUseCase
 import com.darksok.canvaslauncher.domain.usecase.HandlePackageChangedUseCase
 import com.darksok.canvaslauncher.domain.usecase.HandlePackageRemovedUseCase
@@ -52,12 +53,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 @HiltViewModel
 class LauncherViewModel @Inject constructor(
@@ -73,6 +72,7 @@ class LauncherViewModel @Inject constructor(
     private val updateAppPositionUseCase: UpdateAppPositionUseCase,
     private val packageEventsBus: PackageEventsBus,
     private val iconBitmapStore: IconBitmapStore,
+    private val iconCacheGateway: IconCacheGateway,
     private val canvasEditDao: CanvasEditDao,
     private val viewportController: ViewportController,
     private val gestureHandler: CanvasGestureHandler,
@@ -381,6 +381,9 @@ class LauncherViewModel @Inject constructor(
         viewModelScope.launch {
             observeAppsUseCase().collect { apps ->
                 appsState.value = apps
+                if (!isInitialized.value) {
+                    isInitialized.value = true
+                }
                 committedDragPositions.update { overrides ->
                     DragPositionOverrides.pruneCommitted(
                         overrides = overrides,
@@ -512,7 +515,7 @@ class LauncherViewModel @Inject constructor(
             tool != CanvasEditToolId.Text &&
             tool != CanvasEditToolId.Frame
         ) {
-            editInlineEditor.value = CanvasInlineEditorUiState()
+            onEditInlineEditorCancel()
         }
         snapGuides.value = emptyList()
     }
@@ -521,6 +524,57 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit) return
         if (CanvasEditDefaults.PALETTE.contains(colorArgb)) {
             editSelectedColorArgb.value = colorArgb
+            when (val target = editInlineEditor.value.target) {
+                is CanvasInlineEditorTarget.EditSticky -> {
+                    var updated: CanvasStickyNoteUiState? = null
+                    stickyNotes.update { notes ->
+                        notes.map { note ->
+                            if (note.id == target.id) {
+                                val next = note.copy(colorArgb = colorArgb)
+                                updated = next
+                                next
+                            } else {
+                                note
+                            }
+                        }
+                    }
+                    updated?.let(::persistStickyNote)
+                }
+
+                is CanvasInlineEditorTarget.EditText -> {
+                    var updated: CanvasTextObjectUiState? = null
+                    textObjects.update { objects ->
+                        objects.map { item ->
+                            if (item.id == target.id) {
+                                val next = item.copy(colorArgb = colorArgb)
+                                updated = next
+                                next
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                    updated?.let(::persistTextObject)
+                }
+
+                is CanvasInlineEditorTarget.EditFrame -> {
+                    var updated: CanvasFrameObjectUiState? = null
+                    frameObjects.update { frames ->
+                        frames.map { frame ->
+                            if (frame.id == target.id) {
+                                val next = frame.copy(colorArgb = colorArgb)
+                                updated = next
+                                next
+                            } else {
+                                frame
+                            }
+                        }
+                    }
+                    updated?.let(::persistFrameObject)
+                }
+
+                else -> Unit
+            }
         }
     }
 
@@ -536,35 +590,105 @@ class LauncherViewModel @Inject constructor(
         val updated = (editTextSizeWorld.value + deltaWorld)
             .coerceIn(CanvasEditDefaults.MIN_TEXT_SIZE_WORLD, CanvasEditDefaults.MAX_TEXT_SIZE_WORLD)
         editTextSizeWorld.value = updated
+        when (val target = editInlineEditor.value.target) {
+            is CanvasInlineEditorTarget.EditText -> {
+                var changed: CanvasTextObjectUiState? = null
+                textObjects.update { objects ->
+                    objects.map { item ->
+                        if (item.id == target.id) {
+                            val next = item.copy(textSizeWorld = updated)
+                            changed = next
+                            next
+                        } else {
+                            item
+                        }
+                    }
+                }
+                changed?.let(::persistTextObject)
+            }
+
+            is CanvasInlineEditorTarget.EditSticky -> {
+                var changed: CanvasStickyNoteUiState? = null
+                stickyNotes.update { notes ->
+                    notes.map { note ->
+                        if (note.id == target.id) {
+                            val next = note.copy(textSizeWorld = updated)
+                            changed = next
+                            next
+                        } else {
+                            note
+                        }
+                    }
+                }
+                changed?.let(::persistStickyNote)
+            }
+
+            else -> Unit
+        }
     }
 
     fun onEditCanvasTap(worldPoint: WorldPoint) {
         if (activeTool.value != LauncherToolId.Edit) return
         when (editSelectedTool.value) {
             CanvasEditToolId.StickyNote -> {
+                val noteId = nextCanvasId(prefix = "sticky")
+                val note = CanvasStickyNoteUiState(
+                    id = noteId,
+                    text = "",
+                    center = worldPoint,
+                    sizeWorld = CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD,
+                    textSizeWorld = editTextSizeWorld.value,
+                    colorArgb = editSelectedColorArgb.value,
+                )
+                stickyNotes.update { notes -> notes + note }
+                persistStickyNote(note)
                 openInlineEditor(
                     title = "Sticky note",
                     placeholder = "Type note",
                     value = "",
-                    target = CanvasInlineEditorTarget.NewSticky(worldPoint),
+                    target = CanvasInlineEditorTarget.EditSticky(noteId),
+                    isDraft = true,
                 )
             }
 
             CanvasEditToolId.Text -> {
+                val textId = nextCanvasId(prefix = "text")
+                val text = CanvasTextObjectUiState(
+                    id = textId,
+                    text = "",
+                    position = worldPoint,
+                    textSizeWorld = editTextSizeWorld.value,
+                    colorArgb = editSelectedColorArgb.value,
+                )
+                textObjects.update { objects -> objects + text }
+                persistTextObject(text)
                 openInlineEditor(
                     title = "Text",
                     placeholder = "Type text",
                     value = "",
-                    target = CanvasInlineEditorTarget.NewText(worldPoint),
+                    target = CanvasInlineEditorTarget.EditText(textId),
+                    isDraft = true,
                 )
             }
 
             CanvasEditToolId.Frame -> {
+                val frameId = nextCanvasId(prefix = "frame")
+                val frame = CanvasFrameObjectUiState(
+                    id = frameId,
+                    title = "",
+                    center = worldPoint,
+                    widthWorld = CanvasEditDefaults.DEFAULT_FRAME_WIDTH_WORLD,
+                    heightWorld = CanvasEditDefaults.DEFAULT_FRAME_HEIGHT_WORLD,
+                    colorArgb = editSelectedColorArgb.value,
+                )
+                frameObjects.update { frames -> frames + frame }
+                persistFrameObject(frame)
                 openInlineEditor(
                     title = "Frame title",
                     placeholder = "Type frame title",
                     value = "",
-                    target = CanvasInlineEditorTarget.NewFrame(worldPoint),
+                    target = CanvasInlineEditorTarget.EditFrame(frameId),
+                    isDraft = true,
                 )
             }
 
@@ -643,6 +767,8 @@ class LauncherViewModel @Inject constructor(
         if (editSelectedTool.value != CanvasEditToolId.Move) return
         val note = stickyNotes.value.firstOrNull { it.id == noteId } ?: return
         if (centerTap) {
+            editSelectedColorArgb.value = note.colorArgb
+            editTextSizeWorld.value = note.textSizeWorld
             openInlineEditor(
                 title = "Edit note",
                 placeholder = "Type note",
@@ -695,6 +821,8 @@ class LauncherViewModel @Inject constructor(
         }
         if (editSelectedTool.value != CanvasEditToolId.Move) return
         val text = textObjects.value.firstOrNull { it.id == textId } ?: return
+        editSelectedColorArgb.value = text.colorArgb
+        editTextSizeWorld.value = text.textSizeWorld
         openInlineEditor(
             title = "Edit text",
             placeholder = "Type text",
@@ -711,6 +839,7 @@ class LauncherViewModel @Inject constructor(
         }
         if (editSelectedTool.value != CanvasEditToolId.Move) return
         val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
+        editSelectedColorArgb.value = frame.colorArgb
         openInlineEditor(
             title = "Edit frame",
             placeholder = "Type frame title",
@@ -814,6 +943,33 @@ class LauncherViewModel @Inject constructor(
     fun onEditInlineEditorValueChanged(value: String) {
         if (activeTool.value != LauncherToolId.Edit) return
         editInlineEditor.update { it.copy(value = value) }
+        when (val target = editInlineEditor.value.target) {
+            is CanvasInlineEditorTarget.EditSticky -> {
+                stickyNotes.update { notes ->
+                    notes.map { note ->
+                        if (note.id == target.id) note.copy(text = value) else note
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.EditText -> {
+                textObjects.update { objects ->
+                    objects.map { item ->
+                        if (item.id == target.id) item.copy(text = value) else item
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.EditFrame -> {
+                frameObjects.update { frames ->
+                    frames.map { frame ->
+                        if (frame.id == target.id) frame.copy(title = value) else frame
+                    }
+                }
+            }
+
+            else -> Unit
+        }
     }
 
     fun onEditInlineEditorConfirm() {
@@ -822,23 +978,7 @@ class LauncherViewModel @Inject constructor(
         val text = editor.value.trim()
         when (val target = editor.target) {
             CanvasInlineEditorTarget.None -> Unit
-            is CanvasInlineEditorTarget.NewSticky -> {
-                if (text.isNotEmpty()) {
-                    var created: CanvasStickyNoteUiState? = null
-                    stickyNotes.update { notes ->
-                        val note = CanvasStickyNoteUiState(
-                            id = nextCanvasId(prefix = "sticky"),
-                            text = text,
-                            center = target.worldPoint,
-                            sizeWorld = CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD,
-                            colorArgb = editSelectedColorArgb.value,
-                        )
-                        created = note
-                        notes + note
-                    }
-                    created?.let(::persistStickyNote)
-                }
-            }
+            is CanvasInlineEditorTarget.NewSticky -> Unit
 
             is CanvasInlineEditorTarget.EditSticky -> {
                 if (text.isBlank()) {
@@ -860,23 +1000,7 @@ class LauncherViewModel @Inject constructor(
                 }
             }
 
-            is CanvasInlineEditorTarget.NewText -> {
-                if (text.isNotEmpty()) {
-                    var created: CanvasTextObjectUiState? = null
-                    textObjects.update { objects ->
-                        val item = CanvasTextObjectUiState(
-                            id = nextCanvasId(prefix = "text"),
-                            text = text,
-                            position = target.worldPoint,
-                            textSizeWorld = editTextSizeWorld.value,
-                            colorArgb = editSelectedColorArgb.value,
-                        )
-                        created = item
-                        objects + item
-                    }
-                    created?.let(::persistTextObject)
-                }
-            }
+            is CanvasInlineEditorTarget.NewText -> Unit
 
             is CanvasInlineEditorTarget.EditText -> {
                 if (text.isBlank()) {
@@ -898,24 +1022,7 @@ class LauncherViewModel @Inject constructor(
                 }
             }
 
-            is CanvasInlineEditorTarget.NewFrame -> {
-                if (text.isNotEmpty()) {
-                    var created: CanvasFrameObjectUiState? = null
-                    frameObjects.update { frames ->
-                        val frame = CanvasFrameObjectUiState(
-                            id = nextCanvasId(prefix = "frame"),
-                            title = text,
-                            center = target.worldPoint,
-                            widthWorld = CanvasEditDefaults.DEFAULT_FRAME_WIDTH_WORLD,
-                            heightWorld = CanvasEditDefaults.DEFAULT_FRAME_HEIGHT_WORLD,
-                            colorArgb = editSelectedColorArgb.value,
-                        )
-                        created = frame
-                        frames + frame
-                    }
-                    created?.let(::persistFrameObject)
-                }
-            }
+            is CanvasInlineEditorTarget.NewFrame -> Unit
 
             is CanvasInlineEditorTarget.EditFrame -> {
                 if (text.isBlank()) {
@@ -941,6 +1048,67 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditInlineEditorCancel() {
+        val editor = editInlineEditor.value
+        if (editor.isDraft) {
+            when (val target = editor.target) {
+                is CanvasInlineEditorTarget.EditSticky -> deleteStickyNote(target.id)
+                is CanvasInlineEditorTarget.EditText -> deleteTextObject(target.id)
+                is CanvasInlineEditorTarget.EditFrame -> deleteFrameObject(target.id)
+                else -> Unit
+            }
+        } else {
+            when (val target = editor.target) {
+                is CanvasInlineEditorTarget.EditSticky -> {
+                    var restored: CanvasStickyNoteUiState? = null
+                    stickyNotes.update { notes ->
+                        notes.map { note ->
+                            if (note.id == target.id) {
+                                val next = note.copy(text = editor.initialValue)
+                                restored = next
+                                next
+                            } else {
+                                note
+                            }
+                        }
+                    }
+                    restored?.let(::persistStickyNote)
+                }
+
+                is CanvasInlineEditorTarget.EditText -> {
+                    var restored: CanvasTextObjectUiState? = null
+                    textObjects.update { objects ->
+                        objects.map { item ->
+                            if (item.id == target.id) {
+                                val next = item.copy(text = editor.initialValue)
+                                restored = next
+                                next
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                    restored?.let(::persistTextObject)
+                }
+
+                is CanvasInlineEditorTarget.EditFrame -> {
+                    var restored: CanvasFrameObjectUiState? = null
+                    frameObjects.update { frames ->
+                        frames.map { frame ->
+                            if (frame.id == target.id) {
+                                val next = frame.copy(title = editor.initialValue)
+                                restored = next
+                                next
+                            } else {
+                                frame
+                            }
+                        }
+                    }
+                    restored?.let(::persistFrameObject)
+                }
+
+                else -> Unit
+            }
+        }
         editInlineEditor.value = CanvasInlineEditorUiState()
     }
 
@@ -1205,6 +1373,7 @@ class LauncherViewModel @Inject constructor(
                 text = entity.text,
                 center = WorldPoint(entity.centerX, entity.centerY),
                 sizeWorld = entity.sizeWorld,
+                textSizeWorld = entity.textSizeWorld,
                 colorArgb = entity.colorArgb,
             )
         }
@@ -1304,6 +1473,7 @@ class LauncherViewModel @Inject constructor(
                         centerX = note.center.x,
                         centerY = note.center.y,
                         sizeWorld = note.sizeWorld,
+                        textSizeWorld = note.textSizeWorld,
                         colorArgb = note.colorArgb,
                     ),
                 )
@@ -1404,12 +1574,15 @@ class LauncherViewModel @Inject constructor(
         placeholder: String,
         value: String,
         target: CanvasInlineEditorTarget,
+        isDraft: Boolean = false,
     ) {
         editInlineEditor.value = CanvasInlineEditorUiState(
             isVisible = true,
             title = title,
             placeholder = placeholder,
             value = value,
+            initialValue = value,
+            isDraft = isDraft,
             target = target,
         )
     }
@@ -1421,30 +1594,23 @@ class LauncherViewModel @Inject constructor(
 
     private fun initialSync() {
         viewModelScope.launch(dispatchersProvider.io) {
-            runCatching { syncAppsWithSystemUseCase() }
-                .onFailure { throwable ->
-                    Log.e(TAG, "Initial sync failed", throwable)
-                }
             runCatching { loadPersistedCustomElements() }
                 .onFailure { throwable ->
                     Log.e(TAG, "Failed to load persisted custom elements", throwable)
                 }
-            awaitIconReadiness()
-            isInitialized.value = true
-        }
-    }
-
-    private suspend fun awaitIconReadiness() {
-        withTimeoutOrNull(ICON_READINESS_TIMEOUT_MS) {
-            combine(
-                appsState,
-                iconBitmapStore.icons,
-            ) { apps, icons ->
-                IconReadinessPolicy.areReady(
-                    apps = apps,
-                    loadedIconPackages = icons.keys,
-                )
-            }.first { ready -> ready }
+            runCatching { syncAppsWithSystemUseCase(preloadIcons = false) }
+                .onFailure { throwable ->
+                    Log.e(TAG, "Initial sync failed", throwable)
+                }
+            runCatching {
+                val packages = appsState.value.map { app -> app.packageName }
+                if (packages.isNotEmpty()) {
+                    iconCacheGateway.preload(packages)
+                }
+            }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Icon warmup failed", throwable)
+                }
         }
     }
 
@@ -1487,7 +1653,6 @@ class LauncherViewModel @Inject constructor(
 
     private companion object {
         private const val TAG = "LauncherViewModel"
-        private const val ICON_READINESS_TIMEOUT_MS = 2_000L
         private const val ICON_SNAP_THRESHOLD_SCREEN_PX = 9f
         private const val ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX = 88f
         private const val OBJECT_SNAP_THRESHOLD_SCREEN_PX = 12f

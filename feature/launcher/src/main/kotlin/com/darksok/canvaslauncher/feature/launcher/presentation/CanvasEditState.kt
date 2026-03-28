@@ -34,6 +34,7 @@ data class CanvasStickyNoteUiState(
     val text: String,
     val center: WorldPoint,
     val sizeWorld: Float,
+    val textSizeWorld: Float,
     val colorArgb: Int,
 )
 
@@ -69,6 +70,8 @@ data class CanvasInlineEditorUiState(
     val title: String = "",
     val placeholder: String = "",
     val value: String = "",
+    val initialValue: String = "",
+    val isDraft: Boolean = false,
     val target: CanvasInlineEditorTarget = CanvasInlineEditorTarget.None,
 )
 

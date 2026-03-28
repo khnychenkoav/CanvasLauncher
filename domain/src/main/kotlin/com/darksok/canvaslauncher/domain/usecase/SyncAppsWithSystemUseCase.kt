@@ -19,6 +19,7 @@ class SyncAppsWithSystemUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         centerForNewApps: WorldPoint = WorldPoint(0f, 0f),
+        preloadIcons: Boolean = true,
     ): SyncReport {
         val layoutMode = layoutPreferencesRepository.observeLayoutMode().first()
         val installed = installedAppsSource.getInstalledApps()
@@ -61,7 +62,9 @@ class SyncAppsWithSystemUseCase @Inject constructor(
             appsStore.upsertApps(placed)
         }
 
-        iconCacheGateway.preload(installedByPackage.keys)
+        if (preloadIcons) {
+            iconCacheGateway.preload(installedByPackage.keys)
+        }
 
         return SyncReport(
             added = toAddInstalled.size,

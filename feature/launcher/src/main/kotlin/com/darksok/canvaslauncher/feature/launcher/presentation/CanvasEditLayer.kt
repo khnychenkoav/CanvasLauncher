@@ -170,7 +170,9 @@ fun CanvasEditLayer(
             val noteText = note.text.ifBlank { "Note" }
             val lengthFactor = (STICKY_TEXT_BASE_LENGTH / noteText.length.coerceAtLeast(1).toFloat())
                 .coerceIn(STICKY_TEXT_MIN_LENGTH_FACTOR, STICKY_TEXT_MAX_LENGTH_FACTOR)
-            val stickyTextSizePx = (noteSizePx * STICKY_TEXT_SIZE_RATIO * lengthFactor)
+            val stickyAreaFactor = (note.sizeWorld / CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD)
+                .coerceIn(STICKY_TEXT_MIN_AREA_FACTOR, STICKY_TEXT_MAX_AREA_FACTOR)
+            val stickyTextSizePx = (note.textSizeWorld * scale * stickyAreaFactor * lengthFactor)
                 .coerceIn(9f, 72f)
             Surface(
                 shape = RectangleShape,
@@ -435,7 +437,8 @@ private fun Modifier.objectMoveModifier(
     }
 }
 
-private const val STICKY_TEXT_SIZE_RATIO = 0.19f
 private const val STICKY_TEXT_BASE_LENGTH = 26f
 private const val STICKY_TEXT_MIN_LENGTH_FACTOR = 0.72f
 private const val STICKY_TEXT_MAX_LENGTH_FACTOR = 1.46f
+private const val STICKY_TEXT_MIN_AREA_FACTOR = 0.75f
+private const val STICKY_TEXT_MAX_AREA_FACTOR = 1.65f

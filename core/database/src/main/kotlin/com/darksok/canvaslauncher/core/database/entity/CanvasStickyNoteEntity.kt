@@ -10,6 +10,6 @@ data class CanvasStickyNoteEntity(
     val centerX: Float,
     val centerY: Float,
     val sizeWorld: Float,
+    val textSizeWorld: Float,
     val colorArgb: Int,
 )
-

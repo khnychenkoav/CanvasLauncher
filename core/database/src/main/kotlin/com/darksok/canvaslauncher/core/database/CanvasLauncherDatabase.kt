@@ -20,7 +20,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
         CanvasStrokeEntity::class,
         CanvasStrokePointEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class CanvasLauncherDatabase : RoomDatabase() {
