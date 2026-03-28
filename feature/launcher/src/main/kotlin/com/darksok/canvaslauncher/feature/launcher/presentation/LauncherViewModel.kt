@@ -1,0 +1,1221 @@
+package com.darksok.canvaslauncher.feature.launcher.presentation
+
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.darksok.canvaslauncher.core.common.coroutines.DispatchersProvider
+import com.darksok.canvaslauncher.core.common.result.AppResult
+import com.darksok.canvaslauncher.core.model.app.CanvasApp
+import com.darksok.canvaslauncher.core.model.canvas.CameraState
+import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
+import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
+import com.darksok.canvaslauncher.core.model.ui.DarkThemePalette
+import com.darksok.canvaslauncher.core.model.ui.LightThemePalette
+import com.darksok.canvaslauncher.core.model.ui.ThemeMode
+import com.darksok.canvaslauncher.core.packages.events.PackageEvent
+import com.darksok.canvaslauncher.core.packages.events.PackageEventsBus
+import com.darksok.canvaslauncher.core.packages.icon.IconBitmapStore
+import com.darksok.canvaslauncher.core.performance.MiniMapProjector
+import com.darksok.canvaslauncher.core.performance.ViewportCuller
+import com.darksok.canvaslauncher.domain.usecase.HandlePackageAddedUseCase
+import com.darksok.canvaslauncher.domain.usecase.HandlePackageChangedUseCase
+import com.darksok.canvaslauncher.domain.usecase.HandlePackageRemovedUseCase
+import com.darksok.canvaslauncher.domain.usecase.LaunchAppUseCase
+import com.darksok.canvaslauncher.domain.usecase.ObserveAppsUseCase
+import com.darksok.canvaslauncher.domain.usecase.ObserveDarkThemePaletteUseCase
+import com.darksok.canvaslauncher.domain.usecase.ObserveLightThemePaletteUseCase
+import com.darksok.canvaslauncher.domain.usecase.ObserveThemeModeUseCase
+import com.darksok.canvaslauncher.domain.usecase.SyncAppsWithSystemUseCase
+import com.darksok.canvaslauncher.domain.usecase.UpdateAppPositionUseCase
+import com.darksok.canvaslauncher.feature.canvas.CanvasGestureHandler
+import com.darksok.canvaslauncher.feature.canvas.CanvasRenderableApp
+import com.darksok.canvaslauncher.feature.canvas.CanvasSearchVisualState
+import com.darksok.canvaslauncher.feature.canvas.DragDropController
+import com.darksok.canvaslauncher.feature.canvas.DragState
+import com.darksok.canvaslauncher.feature.canvas.ViewportController
+import com.darksok.canvaslauncher.feature.launcher.R
+import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Locale
+import javax.inject.Inject
+import kotlin.math.max
+import kotlin.math.sqrt
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+@HiltViewModel
+class LauncherViewModel @Inject constructor(
+    observeAppsUseCase: ObserveAppsUseCase,
+    observeThemeModeUseCase: ObserveThemeModeUseCase,
+    observeLightThemePaletteUseCase: ObserveLightThemePaletteUseCase,
+    observeDarkThemePaletteUseCase: ObserveDarkThemePaletteUseCase,
+    private val syncAppsWithSystemUseCase: SyncAppsWithSystemUseCase,
+    private val handlePackageAddedUseCase: HandlePackageAddedUseCase,
+    private val handlePackageRemovedUseCase: HandlePackageRemovedUseCase,
+    private val handlePackageChangedUseCase: HandlePackageChangedUseCase,
+    private val launchAppUseCase: LaunchAppUseCase,
+    private val updateAppPositionUseCase: UpdateAppPositionUseCase,
+    private val packageEventsBus: PackageEventsBus,
+    private val iconBitmapStore: IconBitmapStore,
+    private val viewportController: ViewportController,
+    private val gestureHandler: CanvasGestureHandler,
+    private val dragDropController: DragDropController,
+    private val dispatchersProvider: DispatchersProvider,
+) : ViewModel() {
+
+    private val isInitialized = MutableStateFlow(false)
+    private val appsState = MutableStateFlow<List<CanvasApp>>(emptyList())
+    private val committedDragPositions = MutableStateFlow<Map<String, WorldPoint>>(emptyMap())
+    private val isToolsExpanded = MutableStateFlow(false)
+    private val activeTool = MutableStateFlow<LauncherToolId?>(null)
+    private val searchQuery = MutableStateFlow("")
+    private val appsListQuery = MutableStateFlow("")
+    private val showSearchLaunchAction = MutableStateFlow(false)
+    private val searchOcclusionBottomPx = MutableStateFlow(0)
+    private val isSearchKeyboardVisible = MutableStateFlow(false)
+    private val editSelectedTool = MutableStateFlow(CanvasEditToolId.Move)
+    private val editSelectedColorArgb = MutableStateFlow(CanvasEditDefaults.DEFAULT_COLOR)
+    private val editBrushWidthWorld = MutableStateFlow(CanvasEditDefaults.DEFAULT_BRUSH_WIDTH_WORLD)
+    private val editTextSizeWorld = MutableStateFlow(CanvasEditDefaults.DEFAULT_TEXT_SIZE_WORLD)
+    private val editInlineEditor = MutableStateFlow(CanvasInlineEditorUiState())
+    private val frameObjects = MutableStateFlow<List<CanvasFrameObjectUiState>>(emptyList())
+    private val stickyNotes = MutableStateFlow<List<CanvasStickyNoteUiState>>(emptyList())
+    private val textObjects = MutableStateFlow<List<CanvasTextObjectUiState>>(emptyList())
+    private val completedStrokes = MutableStateFlow<List<CanvasStrokeUiState>>(emptyList())
+    private val activeStroke = MutableStateFlow<CanvasStrokeUiState?>(null)
+    private val snapGuides = MutableStateFlow<List<CanvasSnapGuideUiState>>(emptyList())
+    private val spotlightPackageName = MutableStateFlow<String?>(null)
+    private val transientMessageRes = MutableSharedFlow<Int>(extraBufferCapacity = 8)
+    private var cameraSnapshotBeforeSearch: CameraState? = null
+    private var nextCanvasObjectId: Long = 0L
+    private var activeObjectDrag: CanvasObjectDragTarget? = null
+    private var transientIconSnapDragActive: Boolean = false
+
+    private val themeMode = observeThemeModeUseCase().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ThemeMode.SYSTEM,
+    )
+    private val lightPalette = observeLightThemePaletteUseCase().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = LightThemePalette.SKY_BREEZE,
+    )
+    private val darkPalette = observeDarkThemePaletteUseCase().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = DarkThemePalette.MIDNIGHT_BLUE,
+    )
+
+    private val searchMatches = combine(
+        appsState,
+        searchQuery,
+    ) { apps, query ->
+        AppSearchEngine.rankByLabel(query = query, apps = apps)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    private val appsListEntries = combine(
+        appsState,
+        appsListQuery,
+    ) { apps, query ->
+        if (query.isBlank()) {
+            apps.sortedBy { app -> app.label.lowercase(Locale.ROOT) }
+                .map { app -> AppsListEntry(app.packageName, app.label) }
+        } else {
+            AppSearchEngine.rankByLabel(query = query, apps = apps)
+                .map { match -> AppsListEntry(match.packageName, match.label) }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    private val editUiState = combine(
+        editSelectedTool,
+        editSelectedColorArgb,
+        editBrushWidthWorld,
+        editTextSizeWorld,
+        editInlineEditor,
+    ) { selectedTool, selectedColor, brushWidth, textSize, inlineEditor ->
+        EditUiState(
+            selectedTool = selectedTool,
+            selectedColorArgb = selectedColor,
+            brushWidthWorld = brushWidth,
+            textSizeWorld = textSize,
+            inlineEditor = inlineEditor,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = EditUiState(),
+    )
+
+    private val baseSearchToolsState = combine(
+        isToolsExpanded,
+        activeTool,
+        searchQuery,
+        showSearchLaunchAction,
+        searchMatches,
+    ) { toolsExpanded, currentTool, query, showLaunchAction, rankedMatches ->
+        val queryActive = query.isNotBlank()
+        val matchedPackages = if (queryActive) {
+            rankedMatches.mapTo(LinkedHashSet()) { match -> match.packageName }
+        } else {
+            emptySet()
+        }
+        val topMatch = rankedMatches.firstOrNull()
+        SearchToolsState(
+            toolsState = ToolsUiState(
+                isExpanded = toolsExpanded,
+                activeTool = currentTool,
+                search = SearchUiState(
+                    query = query,
+                    suggestionLabel = topMatch?.label,
+                    topMatchPackageName = topMatch?.packageName,
+                    topMatchLabel = topMatch?.label,
+                    showLaunchAction = showLaunchAction && topMatch != null,
+                ),
+            ),
+            queryActive = queryActive,
+            matchedPackageNames = matchedPackages,
+        )
+    }
+
+    private val searchToolsState = combine(
+        baseSearchToolsState,
+        editUiState,
+    ) { baseState, editState ->
+        baseState.copy(
+            toolsState = baseState.toolsState.copy(
+                edit = editState,
+            ),
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SearchToolsState(),
+    )
+
+    private val searchPresentation = combine(
+        searchToolsState,
+        appsListQuery,
+        appsListEntries,
+        spotlightPackageName,
+    ) { searchTools, listQuery, listEntries, spotlightPackage ->
+        SearchPresentationState(
+            toolsState = searchTools.toolsState.copy(
+                appsList = AppsListUiState(
+                    query = listQuery,
+                ),
+            ),
+            queryActive = searchTools.queryActive,
+            matchedPackageNames = searchTools.matchedPackageNames,
+            appsListEntries = listEntries,
+            spotlightPackageName = spotlightPackage,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SearchPresentationState(),
+    )
+
+    val messages = transientMessageRes.asSharedFlow()
+
+    private val renderState = combine(
+        appsState,
+        iconBitmapStore.icons,
+        viewportController.cameraState,
+        dragDropController.dragState,
+        committedDragPositions,
+    ) { apps, icons, camera, dragState, committedPositions ->
+        RenderState(
+            apps = apps,
+            icons = icons,
+            camera = camera,
+            dragState = dragState,
+            committedDragPositions = committedPositions,
+        )
+    }
+
+    private val themedRenderState = combine(
+        renderState,
+        themeMode,
+        lightPalette,
+        darkPalette,
+        isInitialized,
+    ) { render, selectedThemeMode, selectedLightPalette, selectedDarkPalette, initialized ->
+        ThemedRenderState(
+            render = render,
+            themeMode = selectedThemeMode,
+            lightPalette = selectedLightPalette,
+            darkPalette = selectedDarkPalette,
+            isInitialized = initialized,
+        )
+    }
+
+    private val visibleStrokes = combine(
+        completedStrokes,
+        activeStroke,
+    ) { stored, inProgress ->
+        if (inProgress == null) {
+            stored
+        } else {
+            stored + inProgress
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    private val canvasDecorationsState = combine(
+        frameObjects,
+        stickyNotes,
+        textObjects,
+        visibleStrokes,
+        snapGuides,
+    ) { frames, notes, texts, strokes, guides ->
+        CanvasDecorationsState(
+            frames = frames,
+            notes = notes,
+            texts = texts,
+            strokes = strokes,
+            guides = guides,
+        )
+    }
+
+    val uiState = combine(
+        themedRenderState,
+        searchPresentation,
+        canvasDecorationsState,
+    ) { themed, search, decorations ->
+        val render = themed.render
+        val withCommittedPositions = DragPositionOverrides.apply(
+            apps = render.apps,
+            overrides = render.committedDragPositions,
+        )
+        val effectiveApps = withCommittedPositions.applyDragState(render.dragState)
+        val visible = ViewportCuller.cullVisibleApps(
+            apps = effectiveApps,
+            camera = render.camera,
+        )
+        val appsListItems = search.appsListEntries.map { entry ->
+            AppsListItemUiState(
+                packageName = entry.packageName,
+                label = entry.label,
+                icon = render.icons[entry.packageName],
+            )
+        }
+
+        LauncherUiState(
+            cameraState = render.camera,
+            visibleApps = visible.map { app ->
+                CanvasRenderableApp(
+                    packageName = app.packageName,
+                    label = app.label,
+                    worldPosition = app.position,
+                    icon = render.icons[app.packageName],
+                    searchVisualState = when {
+                        search.spotlightPackageName != null -> {
+                            if (search.spotlightPackageName == app.packageName) {
+                                CanvasSearchVisualState.Matched
+                            } else {
+                                CanvasSearchVisualState.Dimmed
+                            }
+                        }
+
+                        !search.queryActive -> CanvasSearchVisualState.Normal
+                        search.matchedPackageNames.contains(app.packageName) -> CanvasSearchVisualState.Matched
+                        else -> CanvasSearchVisualState.Dimmed
+                    },
+                )
+            },
+            allAppPositions = if (!search.toolsState.isSearchActive && MiniMapProjector.shouldShow(render.camera.scale)) {
+                effectiveApps.map { it.position }
+            } else {
+                emptyList()
+            },
+            frames = decorations.frames,
+            strokes = decorations.strokes,
+            stickyNotes = decorations.notes,
+            textObjects = decorations.texts,
+            snapGuides = decorations.guides,
+            themeMode = themed.themeMode,
+            lightPalette = themed.lightPalette,
+            darkPalette = themed.darkPalette,
+            toolsState = search.toolsState.copy(
+                appsList = search.toolsState.appsList.copy(items = appsListItems),
+            ),
+            draggingPackageName = render.dragState?.packageName,
+            isInitialized = themed.isInitialized,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = LauncherUiState(),
+    )
+
+    init {
+        viewModelScope.launch {
+            observeAppsUseCase().collect { apps ->
+                appsState.value = apps
+                committedDragPositions.update { overrides ->
+                    DragPositionOverrides.pruneCommitted(
+                        overrides = overrides,
+                        persistedApps = apps,
+                    )
+                }
+            }
+        }
+        observeSystemPackageEvents()
+        initialSync()
+    }
+
+    fun onViewportSizeChanged(widthPx: Int, heightPx: Int) {
+        viewportController.updateViewportSize(widthPx, heightPx)
+    }
+
+    fun onTransform(
+        panDeltaPx: ScreenPoint,
+        zoomFactor: Float,
+        focusPx: ScreenPoint,
+    ) {
+        clearSpotlight()
+        gestureHandler.onTransform(panDeltaPx, zoomFactor, focusPx)
+    }
+
+    fun onAppClick(packageName: String) {
+        if (activeTool.value == LauncherToolId.Edit) return
+        if (dragDropController.dragState.value != null) return
+        clearSpotlight()
+        viewModelScope.launch {
+            when (launchAppUseCase(packageName)) {
+                is AppResult.Success -> Unit
+                is AppResult.Failure -> transientMessageRes.emit(R.string.error_launch_unavailable)
+            }
+        }
+    }
+
+    fun onAppDragStart(packageName: String) {
+        clearSpotlight()
+        val app = appsState.value.firstOrNull { it.packageName == packageName } ?: return
+        transientIconSnapDragActive = activeTool.value != LauncherToolId.Edit
+        snapGuides.value = emptyList()
+        dragDropController.startDrag(packageName, app.position)
+    }
+
+    fun onAppDragDelta(
+        packageName: String,
+        delta: ScreenPoint,
+    ) {
+        val drag = dragDropController.dragState.value ?: return
+        if (drag.packageName != packageName) return
+        val currentScale = viewportController.cameraState.value.scale
+        dragDropController.dragBy(delta, currentScale)
+        if (activeTool.value == LauncherToolId.Edit || transientIconSnapDragActive) {
+            val updated = dragDropController.dragState.value ?: return
+            val anchors = buildSnapAnchors(excludedIconPackage = packageName)
+            val snapped = SnapAssistEngine.snap(
+                candidate = updated.worldPosition,
+                anchors = anchors,
+                cameraScale = currentScale,
+            )
+            dragDropController.setDraggedPosition(snapped.position)
+            snapGuides.value = snapped.guides
+        }
+    }
+
+    fun onAppDragEnd(packageName: String) {
+        val final = dragDropController.endDrag() ?: return
+        if (final.packageName != packageName) {
+            dragDropController.finishDrag()
+            return
+        }
+        committedDragPositions.update { current ->
+            current + (packageName to final.worldPosition)
+        }
+        snapGuides.value = emptyList()
+        transientIconSnapDragActive = false
+        activeObjectDrag = null
+        dragDropController.finishDrag()
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                updateAppPositionUseCase(packageName, final.worldPosition)
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist drag position for $packageName", throwable)
+                committedDragPositions.update { current -> current - packageName }
+            }
+        }
+    }
+
+    fun onAppDragCancel() {
+        dragDropController.cancelDrag()
+        snapGuides.value = emptyList()
+        transientIconSnapDragActive = false
+        activeObjectDrag = null
+    }
+
+    fun onToolsToggle() {
+        clearSpotlight()
+        if (activeTool.value != null) return
+        isToolsExpanded.update { expanded -> !expanded }
+    }
+
+    fun onToolSelected(toolId: LauncherToolId) {
+        when (toolId) {
+            LauncherToolId.Search -> activateSearchTool()
+            LauncherToolId.AppsList -> activateAppsListTool()
+            LauncherToolId.Edit -> activateEditTool()
+            LauncherToolId.Settings -> isToolsExpanded.value = false
+        }
+    }
+
+    fun onEditClose() {
+        closeEditTool()
+    }
+
+    fun onEditToolSelected(tool: CanvasEditToolId) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        editSelectedTool.value = tool
+        if (tool != CanvasEditToolId.Brush) {
+            activeStroke.value = null
+        }
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditColorSelected(colorArgb: Int) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        if (CanvasEditDefaults.PALETTE.contains(colorArgb)) {
+            editSelectedColorArgb.value = colorArgb
+        }
+    }
+
+    fun onEditBrushSizeStep(deltaWorld: Float) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        val updated = (editBrushWidthWorld.value + deltaWorld)
+            .coerceIn(CanvasEditDefaults.MIN_BRUSH_WIDTH_WORLD, CanvasEditDefaults.MAX_BRUSH_WIDTH_WORLD)
+        editBrushWidthWorld.value = updated
+    }
+
+    fun onEditTextSizeStep(deltaWorld: Float) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        val updated = (editTextSizeWorld.value + deltaWorld)
+            .coerceIn(CanvasEditDefaults.MIN_TEXT_SIZE_WORLD, CanvasEditDefaults.MAX_TEXT_SIZE_WORLD)
+        editTextSizeWorld.value = updated
+    }
+
+    fun onEditCanvasTap(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        when (editSelectedTool.value) {
+            CanvasEditToolId.StickyNote -> {
+                openInlineEditor(
+                    title = "Sticky note",
+                    placeholder = "Type note",
+                    value = "",
+                    target = CanvasInlineEditorTarget.NewSticky(worldPoint),
+                )
+            }
+
+            CanvasEditToolId.Text -> {
+                openInlineEditor(
+                    title = "Text",
+                    placeholder = "Type text",
+                    value = "",
+                    target = CanvasInlineEditorTarget.NewText(worldPoint),
+                )
+            }
+
+            CanvasEditToolId.Frame -> {
+                openInlineEditor(
+                    title = "Frame title",
+                    placeholder = "Type frame title",
+                    value = "",
+                    target = CanvasInlineEditorTarget.NewFrame(worldPoint),
+                )
+            }
+
+            else -> Unit
+        }
+    }
+
+    fun onEditBrushStart(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Brush) return
+        activeStroke.value = CanvasStrokeUiState(
+            id = nextCanvasId(prefix = "stroke"),
+            points = listOf(worldPoint),
+            colorArgb = editSelectedColorArgb.value,
+            widthWorld = editBrushWidthWorld.value,
+        )
+    }
+
+    fun onEditBrushPoint(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Brush) return
+        val stroke = activeStroke.value ?: return
+        val previous = stroke.points.lastOrNull() ?: worldPoint
+        val dx = worldPoint.x - previous.x
+        val dy = worldPoint.y - previous.y
+        if (sqrt(dx * dx + dy * dy) < BRUSH_MIN_POINT_DISTANCE_WORLD) return
+        activeStroke.value = stroke.copy(points = stroke.points + worldPoint)
+    }
+
+    fun onEditBrushEnd() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Brush) return
+        val stroke = activeStroke.value ?: return
+        if (stroke.points.size >= 2) {
+            completedStrokes.update { it + stroke }
+        }
+        activeStroke.value = null
+    }
+
+    fun onEditEraseAt(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Eraser) return
+        val radiusWorld = ERASER_RADIUS_SCREEN_PX / viewportController.cameraState.value.scale
+        completedStrokes.update { strokes ->
+            strokes.filterNot { stroke ->
+                stroke.points.any { point ->
+                    val dx = point.x - worldPoint.x
+                    val dy = point.y - worldPoint.y
+                    (dx * dx + dy * dy) <= radiusWorld * radiusWorld
+                }
+            }
+        }
+    }
+
+    fun onEditStickyTap(
+        noteId: String,
+        centerTap: Boolean,
+    ) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val note = stickyNotes.value.firstOrNull { it.id == noteId } ?: return
+        if (centerTap) {
+            openInlineEditor(
+                title = "Edit note",
+                placeholder = "Type note",
+                value = note.text,
+                target = CanvasInlineEditorTarget.EditSticky(noteId),
+            )
+        } else {
+            stickyNotes.update { notes ->
+                notes.map { current ->
+                    if (current.id != noteId) {
+                        current
+                    } else {
+                        current.copy(
+                            sizeWorld = nextStickySize(current.sizeWorld),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun onEditStickyLongPress(noteId: String) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        stickyNotes.update { notes ->
+            notes.map { current ->
+                if (current.id != noteId) {
+                    current
+                } else {
+                    current.copy(
+                        sizeWorld = nextStickySize(current.sizeWorld),
+                    )
+                }
+            }
+        }
+    }
+
+    fun onEditTextTap(textId: String) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val text = textObjects.value.firstOrNull { it.id == textId } ?: return
+        openInlineEditor(
+            title = "Edit text",
+            placeholder = "Type text",
+            value = text.text,
+            target = CanvasInlineEditorTarget.EditText(textId),
+        )
+    }
+
+    fun onEditFrameTap(frameId: String) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
+        openInlineEditor(
+            title = "Edit frame",
+            placeholder = "Type frame title",
+            value = frame.title,
+            target = CanvasInlineEditorTarget.EditFrame(frameId),
+        )
+    }
+
+    fun onEditObjectDragStart(target: CanvasObjectDragTarget) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        activeObjectDrag = target
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditObjectDragDelta(
+        target: CanvasObjectDragTarget,
+        delta: ScreenPoint,
+    ) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (activeObjectDrag != target) return
+        val scale = viewportController.cameraState.value.scale
+        if (scale == 0f) return
+        val worldDeltaX = delta.x / scale
+        val worldDeltaY = delta.y / scale
+
+        when (target) {
+            is CanvasObjectDragTarget.Frame -> {
+                val frame = frameObjects.value.firstOrNull { it.id == target.id } ?: return
+                val candidate = WorldPoint(
+                    x = frame.center.x + worldDeltaX,
+                    y = frame.center.y + worldDeltaY,
+                )
+                val snap = SnapAssistEngine.snap(
+                    candidate = candidate,
+                    anchors = buildSnapAnchors(excludedObject = target),
+                    cameraScale = scale,
+                )
+                frameObjects.update { frames ->
+                    frames.map { current ->
+                        if (current.id == target.id) current.copy(center = snap.position) else current
+                    }
+                }
+                snapGuides.value = snap.guides
+            }
+
+            is CanvasObjectDragTarget.Sticky -> {
+                val note = stickyNotes.value.firstOrNull { it.id == target.id } ?: return
+                val candidate = WorldPoint(
+                    x = note.center.x + worldDeltaX,
+                    y = note.center.y + worldDeltaY,
+                )
+                val snap = SnapAssistEngine.snap(
+                    candidate = candidate,
+                    anchors = buildSnapAnchors(excludedObject = target),
+                    cameraScale = scale,
+                )
+                stickyNotes.update { notes ->
+                    notes.map { current ->
+                        if (current.id == target.id) current.copy(center = snap.position) else current
+                    }
+                }
+                snapGuides.value = snap.guides
+            }
+
+            is CanvasObjectDragTarget.Text -> {
+                val text = textObjects.value.firstOrNull { it.id == target.id } ?: return
+                val candidate = WorldPoint(
+                    x = text.position.x + worldDeltaX,
+                    y = text.position.y + worldDeltaY,
+                )
+                val snap = SnapAssistEngine.snap(
+                    candidate = candidate,
+                    anchors = buildSnapAnchors(excludedObject = target),
+                    cameraScale = scale,
+                )
+                textObjects.update { texts ->
+                    texts.map { current ->
+                        if (current.id == target.id) current.copy(position = snap.position) else current
+                    }
+                }
+                snapGuides.value = snap.guides
+            }
+        }
+    }
+
+    fun onEditObjectDragEnd() {
+        activeObjectDrag = null
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditInlineEditorValueChanged(value: String) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        editInlineEditor.update { it.copy(value = value) }
+    }
+
+    fun onEditInlineEditorConfirm() {
+        if (activeTool.value != LauncherToolId.Edit) return
+        val editor = editInlineEditor.value
+        val text = editor.value.trim()
+        when (val target = editor.target) {
+            CanvasInlineEditorTarget.None -> Unit
+            is CanvasInlineEditorTarget.NewSticky -> {
+                if (text.isNotEmpty()) {
+                    stickyNotes.update { notes ->
+                        notes + CanvasStickyNoteUiState(
+                            id = nextCanvasId(prefix = "sticky"),
+                            text = text,
+                            center = target.worldPoint,
+                            sizeWorld = CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD,
+                            colorArgb = editSelectedColorArgb.value,
+                        )
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.EditSticky -> {
+                stickyNotes.update { notes ->
+                    notes.map { note ->
+                        if (note.id == target.id) note.copy(text = text) else note
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.NewText -> {
+                if (text.isNotEmpty()) {
+                    textObjects.update { objects ->
+                        objects + CanvasTextObjectUiState(
+                            id = nextCanvasId(prefix = "text"),
+                            text = text,
+                            position = target.worldPoint,
+                            textSizeWorld = editTextSizeWorld.value,
+                            colorArgb = editSelectedColorArgb.value,
+                        )
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.EditText -> {
+                textObjects.update { objects ->
+                    objects.map { item ->
+                        if (item.id == target.id) item.copy(text = text) else item
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.NewFrame -> {
+                if (text.isNotEmpty()) {
+                    frameObjects.update { frames ->
+                        frames + CanvasFrameObjectUiState(
+                            id = nextCanvasId(prefix = "frame"),
+                            title = text,
+                            center = target.worldPoint,
+                            widthWorld = CanvasEditDefaults.DEFAULT_FRAME_WIDTH_WORLD,
+                            heightWorld = CanvasEditDefaults.DEFAULT_FRAME_HEIGHT_WORLD,
+                            colorArgb = editSelectedColorArgb.value,
+                        )
+                    }
+                }
+            }
+
+            is CanvasInlineEditorTarget.EditFrame -> {
+                frameObjects.update { frames ->
+                    frames.map { frame ->
+                        if (frame.id == target.id) frame.copy(title = text) else frame
+                    }
+                }
+            }
+        }
+        editInlineEditor.value = CanvasInlineEditorUiState()
+    }
+
+    fun onEditInlineEditorCancel() {
+        editInlineEditor.value = CanvasInlineEditorUiState()
+    }
+
+    fun collapseToolsPanel() {
+        if (activeTool.value == null) {
+            isToolsExpanded.value = false
+        }
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        clearSpotlight()
+        searchQuery.value = query
+        showSearchLaunchAction.value = false
+    }
+
+    fun onSearchActionClick() {
+        executeSearch(showLaunchAction = true)
+    }
+
+    fun onSearchSubmit() {
+        executeSearch(showLaunchAction = true)
+    }
+
+    fun onSearchLaunchTopMatch() {
+        val packageName = searchMatches.value.firstOrNull()?.packageName ?: return
+        onAppClick(packageName)
+    }
+
+    fun onSearchClose() {
+        closeSearchTool(restoreViewport = true)
+    }
+
+    fun onSearchKeyboardVisibilityChanged(isVisible: Boolean) {
+        if (isSearchKeyboardVisible.value != isVisible) {
+            isSearchKeyboardVisible.value = isVisible
+        }
+    }
+
+    fun onSearchOcclusionChanged(bottomOcclusionPx: Int) {
+        val value = bottomOcclusionPx.coerceAtLeast(0)
+        if (searchOcclusionBottomPx.value != value) {
+            searchOcclusionBottomPx.value = value
+        }
+    }
+
+    fun onAppsListQueryChanged(query: String) {
+        appsListQuery.value = query
+    }
+
+    fun onAppsListAppClick(packageName: String) {
+        clearSpotlight()
+        onAppClick(packageName)
+        closeAppsListTool()
+    }
+
+    fun onAppsListShowOnCanvas(packageName: String) {
+        closeAppsListTool()
+        focusOnPackage(packageName)
+        spotlightPackageName.value = packageName
+    }
+
+    fun onAppsListClose() {
+        closeAppsListTool()
+    }
+
+    private fun activateSearchTool() {
+        if (activeTool.value == LauncherToolId.Search) return
+        if (activeTool.value == LauncherToolId.AppsList) {
+            closeAppsListTool()
+        } else if (activeTool.value == LauncherToolId.Edit) {
+            closeEditTool()
+        }
+        cameraSnapshotBeforeSearch = viewportController.cameraState.value
+        activeTool.value = LauncherToolId.Search
+        isToolsExpanded.value = false
+        searchQuery.value = ""
+        showSearchLaunchAction.value = false
+        clearSpotlight()
+    }
+
+    private fun activateAppsListTool() {
+        if (activeTool.value == LauncherToolId.AppsList) return
+        if (activeTool.value == LauncherToolId.Search) {
+            closeSearchTool(restoreViewport = true)
+        } else if (activeTool.value == LauncherToolId.Edit) {
+            closeEditTool()
+        }
+        activeTool.value = LauncherToolId.AppsList
+        isToolsExpanded.value = false
+        searchQuery.value = ""
+        showSearchLaunchAction.value = false
+        appsListQuery.value = ""
+    }
+
+    private fun activateEditTool() {
+        if (activeTool.value == LauncherToolId.Edit) return
+        when (activeTool.value) {
+            LauncherToolId.Search -> closeSearchTool(restoreViewport = true)
+            LauncherToolId.AppsList -> closeAppsListTool()
+            else -> Unit
+        }
+        activeTool.value = LauncherToolId.Edit
+        isToolsExpanded.value = false
+        showSearchLaunchAction.value = false
+        clearSpotlight()
+        snapGuides.value = emptyList()
+        activeObjectDrag = null
+        transientIconSnapDragActive = false
+    }
+
+    private fun closeSearchTool(restoreViewport: Boolean) {
+        if (activeTool.value == LauncherToolId.Search && restoreViewport) {
+            cameraSnapshotBeforeSearch?.let { snapshot ->
+                val currentCamera = viewportController.cameraState.value
+                viewportController.setCamera(
+                    snapshot.withCurrentViewport(currentCamera),
+                )
+            }
+        }
+        cameraSnapshotBeforeSearch = null
+        activeTool.value = null
+        isToolsExpanded.value = false
+        searchQuery.value = ""
+        showSearchLaunchAction.value = false
+        searchOcclusionBottomPx.value = 0
+        isSearchKeyboardVisible.value = false
+        clearSpotlight()
+    }
+
+    private fun closeAppsListTool() {
+        if (activeTool.value == LauncherToolId.AppsList) {
+            activeTool.value = null
+        }
+        isToolsExpanded.value = false
+        appsListQuery.value = ""
+    }
+
+    private fun closeEditTool() {
+        if (activeTool.value == LauncherToolId.Edit) {
+            activeTool.value = null
+        }
+        isToolsExpanded.value = false
+        editSelectedTool.value = CanvasEditToolId.Move
+        activeStroke.value = null
+        editInlineEditor.value = CanvasInlineEditorUiState()
+        snapGuides.value = emptyList()
+        activeObjectDrag = null
+        transientIconSnapDragActive = false
+    }
+
+    private fun clearSpotlight() {
+        if (spotlightPackageName.value != null) {
+            spotlightPackageName.value = null
+        }
+    }
+
+    private fun executeSearch(showLaunchAction: Boolean) {
+        clearSpotlight()
+        val topMatch = searchMatches.value.firstOrNull() ?: run {
+            showSearchLaunchAction.value = false
+            return
+        }
+        focusOnPackage(topMatch.packageName)
+        showSearchLaunchAction.value = showLaunchAction
+    }
+
+    private fun focusOnPackage(packageName: String) {
+        val app = appsState.value.firstOrNull { item -> item.packageName == packageName } ?: return
+        val camera = viewportController.cameraState.value
+        val viewportHeight = camera.viewportHeightPx.toFloat()
+        val offsetY = if (isSearchKeyboardVisible.value) {
+            val targetY = viewportHeight * SEARCH_KEYBOARD_TARGET_SCREEN_Y_RATIO
+            targetY - viewportHeight / 2f
+        } else {
+            val occludedPx = searchOcclusionBottomPx.value.toFloat().coerceAtLeast(SEARCH_BASE_OCCLUSION_PX)
+            val desiredLiftPx = occludedPx * SEARCH_FOCUS_OFFSET_MULTIPLIER + SEARCH_FOCUS_EXTRA_GAP_PX
+            val maxLiftPx = max(
+                SEARCH_MIN_FOCUS_LIFT_PX,
+                viewportHeight * SEARCH_MAX_FOCUS_LIFT_RATIO,
+            )
+            -desiredLiftPx.coerceIn(SEARCH_MIN_FOCUS_LIFT_PX, maxLiftPx)
+        }
+        val targetScale = max(camera.scale, SEARCH_MIN_FOCUS_SCALE)
+        if (targetScale > camera.scale) {
+            val focusPoint = ScreenPoint(
+                x = camera.viewportWidthPx / 2f,
+                y = camera.viewportHeightPx / 2f + offsetY,
+            )
+            viewportController.zoomBy(targetScale / camera.scale, focusPoint)
+        }
+        viewportController.centerOn(
+            worldPoint = app.position,
+            screenOffsetPx = ScreenPoint(0f, offsetY),
+        )
+    }
+
+    private fun buildSnapAnchors(
+        excludedIconPackage: String? = null,
+        excludedObject: CanvasObjectDragTarget? = null,
+    ): List<WorldPoint> {
+        val iconAnchors = DragPositionOverrides.apply(
+            apps = appsState.value,
+            overrides = committedDragPositions.value,
+        ).mapNotNull { app ->
+            if (app.packageName == excludedIconPackage) {
+                null
+            } else {
+                app.position
+            }
+        }
+
+        val excludedStickyId = (excludedObject as? CanvasObjectDragTarget.Sticky)?.id
+        val excludedTextId = (excludedObject as? CanvasObjectDragTarget.Text)?.id
+        val excludedFrameId = (excludedObject as? CanvasObjectDragTarget.Frame)?.id
+
+        val stickyAnchors = stickyNotes.value
+            .asSequence()
+            .filterNot { it.id == excludedStickyId }
+            .map { it.center }
+            .toList()
+        val textAnchors = textObjects.value
+            .asSequence()
+            .filterNot { it.id == excludedTextId }
+            .map { it.position }
+            .toList()
+        val frameAnchors = frameObjects.value
+            .asSequence()
+            .filterNot { it.id == excludedFrameId }
+            .map { it.center }
+            .toList()
+
+        return buildList(iconAnchors.size + stickyAnchors.size + textAnchors.size + frameAnchors.size) {
+            addAll(iconAnchors)
+            addAll(stickyAnchors)
+            addAll(textAnchors)
+            addAll(frameAnchors)
+        }
+    }
+
+    private fun nextStickySize(current: Float): Float {
+        val sizes = listOf(
+            CanvasEditDefaults.STICKY_MIN_SIZE_WORLD,
+            CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD,
+            CanvasEditDefaults.STICKY_MAX_SIZE_WORLD,
+        )
+        val currentIndex = sizes.indexOfFirst { value -> value == current }
+        if (currentIndex == -1) return CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD
+        return sizes[(currentIndex + 1) % sizes.size]
+    }
+
+    private fun openInlineEditor(
+        title: String,
+        placeholder: String,
+        value: String,
+        target: CanvasInlineEditorTarget,
+    ) {
+        editInlineEditor.value = CanvasInlineEditorUiState(
+            isVisible = true,
+            title = title,
+            placeholder = placeholder,
+            value = value,
+            target = target,
+        )
+    }
+
+    private fun nextCanvasId(prefix: String): String {
+        val next = nextCanvasObjectId++
+        return "$prefix-$next"
+    }
+
+    private fun initialSync() {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { syncAppsWithSystemUseCase() }
+                .onFailure { throwable ->
+                    Log.e(TAG, "Initial sync failed", throwable)
+                }
+            awaitIconReadiness()
+            isInitialized.value = true
+        }
+    }
+
+    private suspend fun awaitIconReadiness() {
+        withTimeoutOrNull(ICON_READINESS_TIMEOUT_MS) {
+            combine(
+                appsState,
+                iconBitmapStore.icons,
+            ) { apps, icons ->
+                IconReadinessPolicy.areReady(
+                    apps = apps,
+                    loadedIconPackages = icons.keys,
+                )
+            }.first { ready -> ready }
+        }
+    }
+
+    private fun observeSystemPackageEvents() {
+        viewModelScope.launch {
+            packageEventsBus.events.collect { event ->
+                withContext(dispatchersProvider.io) {
+                    runCatching {
+                        when (event) {
+                            is PackageEvent.Added -> {
+                                handlePackageAddedUseCase(
+                                    packageName = event.packageName,
+                                    worldCenter = viewportController.cameraState.value.worldCenter,
+                                )
+                            }
+
+                            is PackageEvent.Removed -> handlePackageRemovedUseCase(event.packageName)
+                            is PackageEvent.Changed -> handlePackageChangedUseCase(event.packageName)
+                        }
+                    }.onFailure { throwable ->
+                        Log.w(TAG, "Failed to process package event: ${event.packageName}", throwable)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun List<CanvasApp>.applyDragState(
+        dragState: DragState?,
+    ): List<CanvasApp> {
+        if (dragState == null) return this
+        return map { app ->
+            if (app.packageName == dragState.packageName) {
+                app.copy(position = dragState.worldPosition)
+            } else {
+                app
+            }
+        }
+    }
+
+    private companion object {
+        private const val TAG = "LauncherViewModel"
+        private const val ICON_READINESS_TIMEOUT_MS = 2_000L
+        private const val SEARCH_BASE_OCCLUSION_PX = 64f
+        private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
+        private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
+        private const val SEARCH_MIN_FOCUS_LIFT_PX = 32f
+        private const val SEARCH_MAX_FOCUS_LIFT_RATIO = 0.22f
+        private const val SEARCH_KEYBOARD_TARGET_SCREEN_Y_RATIO = 0.25f
+        private const val SEARCH_MIN_FOCUS_SCALE = 1.08f
+        private const val BRUSH_MIN_POINT_DISTANCE_WORLD = 2f
+        private const val ERASER_RADIUS_SCREEN_PX = 22f
+    }
+}
+
+sealed interface CanvasObjectDragTarget {
+    data class Sticky(val id: String) : CanvasObjectDragTarget
+    data class Text(val id: String) : CanvasObjectDragTarget
+    data class Frame(val id: String) : CanvasObjectDragTarget
+}
+
+private data class RenderState(
+    val apps: List<CanvasApp>,
+    val icons: Map<String, android.graphics.Bitmap?>,
+    val camera: CameraState,
+    val dragState: DragState?,
+    val committedDragPositions: Map<String, WorldPoint>,
+)
+
+private data class ThemedRenderState(
+    val render: RenderState,
+    val themeMode: ThemeMode,
+    val lightPalette: LightThemePalette,
+    val darkPalette: DarkThemePalette,
+    val isInitialized: Boolean,
+)
+
+private data class SearchPresentationState(
+    val toolsState: ToolsUiState = ToolsUiState(),
+    val queryActive: Boolean = false,
+    val matchedPackageNames: Set<String> = emptySet(),
+    val appsListEntries: List<AppsListEntry> = emptyList(),
+    val spotlightPackageName: String? = null,
+)
+
+private data class SearchToolsState(
+    val toolsState: ToolsUiState = ToolsUiState(),
+    val queryActive: Boolean = false,
+    val matchedPackageNames: Set<String> = emptySet(),
+)
+
+private data class CanvasDecorationsState(
+    val frames: List<CanvasFrameObjectUiState> = emptyList(),
+    val notes: List<CanvasStickyNoteUiState> = emptyList(),
+    val texts: List<CanvasTextObjectUiState> = emptyList(),
+    val strokes: List<CanvasStrokeUiState> = emptyList(),
+    val guides: List<CanvasSnapGuideUiState> = emptyList(),
+)
+
+private data class AppsListEntry(
+    val packageName: String,
+    val label: String,
+)

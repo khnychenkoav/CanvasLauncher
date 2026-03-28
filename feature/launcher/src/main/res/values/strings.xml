@@ -1,0 +1,14 @@
+<resources>
+    <string name="error_launch_unavailable">Unable to launch this app.</string>
+    <string name="search_placeholder">Find app on canvas</string>
+    <string name="search_launch_top_match">Launch app \"%1$s\"</string>
+    <string name="apps_list_title">App list</string>
+    <string name="apps_list_count">%1$d apps</string>
+    <string name="apps_list_close">Close</string>
+    <string name="apps_list_empty">No apps match your query.</string>
+    <string name="apps_list_search_placeholder">Search apps</string>
+    <string name="apps_list_menu_show_canvas">Show on canvas</string>
+    <string name="apps_list_menu_uninstall">Uninstall app</string>
+    <string name="apps_list_menu_cancel">Cancel</string>
+    <string name="error_uninstall_unavailable">Unable to open uninstall screen.</string>
+</resources>

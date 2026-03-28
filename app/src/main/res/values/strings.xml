@@ -1,0 +1,58 @@
+<resources>
+    <string name="app_name">Canvas Launcher</string>
+
+    <string name="default_brand_label">Canvas</string>
+    <string name="default_intro_title">Canvas Launcher, your infinite home screen</string>
+    <string name="default_intro_body">Pan, zoom, and arrange apps freely on a limitless 2D canvas. Make Canvas your default launcher in one tap.</string>
+    <string name="default_make_launcher_button">Set as default launcher</string>
+    <string name="default_open_settings_button">Open settings</string>
+    <string name="default_open_canvas_button">Open home now</string>
+    <string name="default_open_settings_failed">Unable to open launcher settings.</string>
+    <string name="default_open_home_failed">Unable to open the home screen.</string>
+
+    <string name="default_feature_title">Why it feels better</string>
+    <string name="default_feature_line_one">No rigid pages: every app lives in world coordinates.</string>
+    <string name="default_feature_line_two">Smooth pinch zoom with orientation dots keeps you grounded.</string>
+    <string name="default_feature_line_three">Long press and drag anywhere, then continue exploring.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Tune Canvas Launcher to your preference.</string>
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_hint">Theme is applied across intro, settings, and launcher screens.</string>
+    <string name="settings_palette_hint">Choose separate color presets for light and dark appearance.</string>
+    <string name="settings_light_palette_title">Light palette</string>
+    <string name="settings_dark_palette_title">Dark palette</string>
+    <string name="settings_reopen_hint">You can reopen this screen anytime from the app icon.</string>
+    <string name="settings_layout_title">App layout</string>
+    <string name="settings_layout_hint">Tap to apply a layout. Long press an option to see how it arranges apps.</string>
+    <string name="settings_system_controls_title">System</string>
+    <string name="settings_launcher_picker_button">Choose default launcher</string>
+    <string name="settings_phone_settings_button">Open phone settings</string>
+    <string name="settings_close_button">Close</string>
+
+    <string name="theme_mode_system">System</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+
+    <string name="light_palette_sky_breeze">Sky Breeze</string>
+    <string name="light_palette_mint_garden">Mint Garden</string>
+    <string name="light_palette_sunset_glow">Sunset Glow</string>
+    <string name="light_palette_rose_dawn">Rose Dawn</string>
+
+    <string name="dark_palette_midnight_blue">Midnight Blue</string>
+    <string name="dark_palette_deep_ocean">Deep Ocean</string>
+    <string name="dark_palette_forest_night">Forest Night</string>
+    <string name="dark_palette_charcoal_amber">Charcoal Amber</string>
+
+    <string name="layout_mode_spiral">Spiral</string>
+    <string name="layout_mode_rectangle">Rectangle</string>
+    <string name="layout_mode_circle">Circle</string>
+    <string name="layout_mode_oval">Oval</string>
+    <string name="layout_mode_smart_auto">Automatic smart layout</string>
+
+    <string name="layout_mode_spiral_description">Places apps along a smooth spiral from the center outward. Great for organic browsing and gradual expansion.</string>
+    <string name="layout_mode_rectangle_description">Places apps on a balanced rectangular grid sized to the screen ratio, with consistent spacing and clean rows.</string>
+    <string name="layout_mode_circle_description">Places apps on circular rings around the center, keeping equal distance between items for radial navigation.</string>
+    <string name="layout_mode_oval_description">Places apps on elliptical rings, giving more horizontal spread while preserving comfortable gaps.</string>
+    <string name="layout_mode_smart_auto_description">Groups apps by category keywords (messengers, media, tools, shopping, games, work) and places each group in its own spaced rectangle.</string>
+</resources>
