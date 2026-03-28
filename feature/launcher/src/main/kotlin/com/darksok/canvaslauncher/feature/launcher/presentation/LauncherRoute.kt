@@ -19,6 +19,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -111,8 +112,18 @@ fun LauncherRoute(
             containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) {
+            val canvasHostModifier = if (
+                uiState.toolsState.isEditActive &&
+                uiState.toolsState.edit.inlineEditor.isVisible
+            ) {
+                Modifier
+                    .fillMaxSize()
+                    .imePadding()
+            } else {
+                Modifier.fillMaxSize()
+            }
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = canvasHostModifier,
             ) {
                 if (!uiState.isInitialized) {
                     CircularProgressIndicator(

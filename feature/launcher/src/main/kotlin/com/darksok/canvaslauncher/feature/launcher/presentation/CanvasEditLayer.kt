@@ -15,13 +15,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -56,6 +63,7 @@ fun CanvasEditLayer(
     onObjectDragEnd: () -> Unit,
 ) {
     val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
     val scale = cameraState.scale
     val allowsObjectMove = isEditActive && editState.selectedTool == CanvasEditToolId.Move
     val allowsObjectTap = isEditActive && (
@@ -95,30 +103,38 @@ fun CanvasEditLayer(
                         height = with(density) { heightPx.toDp() },
                     )
                     .background(
-                        color = Color(frame.colorArgb).copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(14.dp),
-                    )
-                    .objectMoveModifier(
-                        enabled = allowsObjectMove,
-                        target = CanvasObjectDragTarget.Frame(frame.id),
-                        onObjectDragStart = onObjectDragStart,
-                        onObjectDragDelta = onObjectDragDelta,
-                        onObjectDragEnd = onObjectDragEnd,
-                    )
-                    .pointerInput(allowsObjectTap, frame.id, editState.selectedTool) {
-                        if (!allowsObjectTap) return@pointerInput
-                        detectTapGestures(
-                            onTap = { onFrameTap(frame.id) },
-                        )
-                    },
+                        color = Color(frame.colorArgb).copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(10.dp),
+                    ),
             ) {
-                Text(
-                    text = frame.title.ifBlank { "Frame" },
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
-                    modifier = Modifier.offset(x = 12.dp, y = 10.dp),
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+                    tonalElevation = 1.dp,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .objectMoveModifier(
+                            enabled = allowsObjectMove,
+                            target = CanvasObjectDragTarget.Frame(frame.id),
+                            onObjectDragStart = onObjectDragStart,
+                            onObjectDragDelta = onObjectDragDelta,
+                            onObjectDragEnd = onObjectDragEnd,
+                        )
+                        .pointerInput(allowsObjectTap, frame.id, editState.selectedTool) {
+                            if (!allowsObjectTap) return@pointerInput
+                            detectTapGestures(
+                                onTap = { onFrameTap(frame.id) },
+                            )
+                        },
+                ) {
+                    Text(
+                        text = frame.title.ifBlank { "Frame" },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    )
+                }
             }
         }
 
@@ -151,8 +167,13 @@ fun CanvasEditLayer(
         stickyNotes.forEach { note ->
             val center = WorldScreenTransformer.worldToScreen(note.center, cameraState)
             val noteSizePx = (note.sizeWorld * scale).coerceAtLeast(42f)
+            val noteText = note.text.ifBlank { "Note" }
+            val lengthFactor = (STICKY_TEXT_BASE_LENGTH / noteText.length.coerceAtLeast(1).toFloat())
+                .coerceIn(STICKY_TEXT_MIN_LENGTH_FACTOR, STICKY_TEXT_MAX_LENGTH_FACTOR)
+            val stickyTextSizePx = (noteSizePx * STICKY_TEXT_SIZE_RATIO * lengthFactor)
+                .coerceIn(9f, 30f)
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RectangleShape,
                 color = Color(note.colorArgb).copy(alpha = 0.92f),
                 tonalElevation = 3.dp,
                 modifier = Modifier
@@ -164,6 +185,11 @@ fun CanvasEditLayer(
                     }
                     .size(with(density) { noteSizePx.toDp() })
                     .zIndex(0.6f)
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = RectangleShape,
+                        clip = false,
+                    )
                     .objectMoveModifier(
                         enabled = allowsObjectMove,
                         target = CanvasObjectDragTarget.Sticky(note.id),
@@ -191,31 +217,32 @@ fun CanvasEditLayer(
                         )
                     },
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val foldSize = size.minDimension * 0.2f
-                        val foldPath = Path().apply {
-                            moveTo(size.width - foldSize, 0f)
-                            lineTo(size.width, 0f)
-                            lineTo(size.width, foldSize)
-                            close()
-                        }
-                        drawPath(
-                            path = foldPath,
-                            color = Color.White.copy(alpha = 0.45f),
-                        )
-                        drawLine(
-                            color = Color.Black.copy(alpha = 0.12f),
-                            start = Offset(size.width - foldSize, 0f),
-                            end = Offset(size.width, foldSize),
-                            strokeWidth = 1.2.dp.toPx(),
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.14f),
+                                ),
+                                startY = size.height * 0.70f,
+                                endY = size.height,
+                            ),
+                            topLeft = Offset(0f, size.height * 0.70f),
+                            size = Size(size.width, size.height * 0.30f),
                         )
                     }
                     Text(
-                        text = note.text.ifBlank { "Note" },
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = noteText,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = with(density) { stickyTextSizePx.toSp() },
+                        ),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                         maxLines = 8,
                     )
                 }
@@ -225,15 +252,23 @@ fun CanvasEditLayer(
         textObjects.forEach { textObject ->
             val screen = WorldScreenTransformer.worldToScreen(textObject.position, cameraState)
             val textSizePx = (textObject.textSizeWorld * scale).coerceIn(12f, 128f)
-            Text(
-                text = textObject.text.ifBlank { "Text" },
-                color = Color(textObject.colorArgb),
+            val textStyle = MaterialTheme.typography.bodyMedium.copy(
                 fontSize = with(density) { textSizePx.toSp() },
+            )
+            val textContent = textObject.text.ifBlank { "Text" }
+            val measured = textMeasurer.measure(
+                text = textContent,
+                style = textStyle,
+            )
+            Text(
+                text = textContent,
+                color = Color(textObject.colorArgb),
+                style = textStyle,
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            x = screen.x.roundToInt(),
-                            y = screen.y.roundToInt(),
+                            x = (screen.x - measured.size.width / 2f).roundToInt(),
+                            y = (screen.y - measured.size.height / 2f).roundToInt(),
                         )
                     }
                     .zIndex(0.7f)
@@ -398,3 +433,8 @@ private fun Modifier.objectMoveModifier(
         )
     }
 }
+
+private const val STICKY_TEXT_SIZE_RATIO = 0.14f
+private const val STICKY_TEXT_BASE_LENGTH = 24f
+private const val STICKY_TEXT_MIN_LENGTH_FACTOR = 0.58f
+private const val STICKY_TEXT_MAX_LENGTH_FACTOR = 1.24f
