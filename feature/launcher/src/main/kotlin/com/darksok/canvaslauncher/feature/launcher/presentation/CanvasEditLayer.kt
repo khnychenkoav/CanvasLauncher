@@ -171,7 +171,7 @@ fun CanvasEditLayer(
             val lengthFactor = (STICKY_TEXT_BASE_LENGTH / noteText.length.coerceAtLeast(1).toFloat())
                 .coerceIn(STICKY_TEXT_MIN_LENGTH_FACTOR, STICKY_TEXT_MAX_LENGTH_FACTOR)
             val stickyTextSizePx = (noteSizePx * STICKY_TEXT_SIZE_RATIO * lengthFactor)
-                .coerceIn(9f, 30f)
+                .coerceIn(9f, 72f)
             Surface(
                 shape = RectangleShape,
                 color = Color(note.colorArgb).copy(alpha = 0.92f),
@@ -239,6 +239,7 @@ fun CanvasEditLayer(
                         text = noteText,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontSize = with(density) { stickyTextSizePx.toSp() },
+                            lineHeight = with(density) { (stickyTextSizePx * 1.12f).toSp() },
                         ),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
                         textAlign = TextAlign.Center,
@@ -434,7 +435,7 @@ private fun Modifier.objectMoveModifier(
     }
 }
 
-private const val STICKY_TEXT_SIZE_RATIO = 0.14f
-private const val STICKY_TEXT_BASE_LENGTH = 24f
-private const val STICKY_TEXT_MIN_LENGTH_FACTOR = 0.58f
-private const val STICKY_TEXT_MAX_LENGTH_FACTOR = 1.24f
+private const val STICKY_TEXT_SIZE_RATIO = 0.19f
+private const val STICKY_TEXT_BASE_LENGTH = 26f
+private const val STICKY_TEXT_MIN_LENGTH_FACTOR = 0.72f
+private const val STICKY_TEXT_MAX_LENGTH_FACTOR = 1.46f
