@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.OpenWith
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -80,6 +81,7 @@ fun LauncherToolsOverlay(
     onSearchQueryChanged: (String) -> Unit,
     onSearchActionClick: () -> Unit,
     onSearchSubmit: () -> Unit,
+    onSearchOpenInBrowser: (String) -> Unit,
     onSearchLaunchTopMatch: () -> Unit,
     onSearchClose: () -> Unit,
     onSearchOcclusionChanged: (Int) -> Unit,
@@ -173,6 +175,7 @@ fun LauncherToolsOverlay(
                                 maxWidth = searchFieldMaxWidth,
                                 onQueryChanged = onSearchQueryChanged,
                                 onSearchClick = onSearchActionClick,
+                                onBrowserSearchClick = onSearchOpenInBrowser,
                                 onSubmit = onSearchSubmit,
                             )
                             ToolCircleButton(
@@ -320,6 +323,7 @@ private fun SearchInputPill(
     maxWidth: androidx.compose.ui.unit.Dp,
     onQueryChanged: (String) -> Unit,
     onSearchClick: () -> Unit,
+    onBrowserSearchClick: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -400,6 +404,25 @@ private fun SearchInputPill(
                     }
                 },
             )
+
+            ToolCircleButton(
+                onClick = {
+                    val trimmed = query.trim()
+                    if (trimmed.isNotEmpty()) {
+                        onBrowserSearchClick(trimmed)
+                    }
+                },
+                modifier = Modifier.size(40.dp),
+                usePrimaryContainer = false,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Public,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                        alpha = if (query.isBlank()) 0.42f else 1f,
+                    ),
+                )
+            }
         }
     }
 }

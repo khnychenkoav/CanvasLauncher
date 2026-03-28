@@ -11,5 +11,6 @@
     <string name="apps_list_menu_uninstall">Uninstall app</string>
     <string name="apps_list_menu_cancel">Cancel</string>
     <string name="error_uninstall_unavailable">Unable to open uninstall screen.</string>
+    <string name="error_web_search_unavailable">Unable to open browser search.</string>
     <string name="edit_clear_custom_elements">Clear custom elements</string>
 </resources>

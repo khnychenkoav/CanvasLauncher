@@ -234,6 +234,16 @@ fun LauncherRoute(
                             onSearchQueryChanged = viewModel::onSearchQueryChanged,
                             onSearchActionClick = viewModel::onSearchActionClick,
                             onSearchSubmit = viewModel::onSearchSubmit,
+                            onSearchOpenInBrowser = { query ->
+                                val opened = openQueryInDefaultBrowser(context, query)
+                                if (!opened) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = context.getString(R.string.error_web_search_unavailable),
+                                        )
+                                    }
+                                }
+                            },
                             onSearchLaunchTopMatch = viewModel::onSearchLaunchTopMatch,
                             onSearchClose = viewModel::onSearchClose,
                             onSearchOcclusionChanged = viewModel::onSearchOcclusionChanged,
@@ -266,6 +276,20 @@ private fun openUninstallApp(context: Context, packageName: String): Boolean {
     return intents.any { intent ->
         launchIntentCompat(context, intent)
     }
+}
+
+private fun openQueryInDefaultBrowser(
+    context: Context,
+    query: String,
+): Boolean {
+    val trimmedQuery = query.trim()
+    if (trimmedQuery.isEmpty()) return false
+    val encoded = Uri.encode(trimmedQuery)
+    val intent = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("https://www.google.com/search?q=$encoded"),
+    )
+    return launchIntentCompat(context, intent)
 }
 
 private fun launchIntentCompat(context: Context, intent: Intent): Boolean {
