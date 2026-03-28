@@ -5,6 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.darksok.canvaslauncher.core.common.coroutines.DispatchersProvider
 import com.darksok.canvaslauncher.core.common.result.AppResult
+import com.darksok.canvaslauncher.core.database.dao.CanvasEditDao
+import com.darksok.canvaslauncher.core.database.dao.CanvasStrokeWithPointsEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasFrameObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
 import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
@@ -66,6 +73,7 @@ class LauncherViewModel @Inject constructor(
     private val updateAppPositionUseCase: UpdateAppPositionUseCase,
     private val packageEventsBus: PackageEventsBus,
     private val iconBitmapStore: IconBitmapStore,
+    private val canvasEditDao: CanvasEditDao,
     private val viewportController: ViewportController,
     private val gestureHandler: CanvasGestureHandler,
     private val dragDropController: DragDropController,
@@ -433,6 +441,9 @@ class LauncherViewModel @Inject constructor(
                 candidate = updated.worldPosition,
                 anchors = anchors,
                 cameraScale = currentScale,
+                previousGuides = snapGuides.value,
+                baseThresholdPx = ICON_SNAP_THRESHOLD_SCREEN_PX,
+                axisInfluencePx = ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX,
             )
             dragDropController.setDraggedPosition(snapped.position)
             snapGuides.value = snapped.guides
@@ -493,6 +504,15 @@ class LauncherViewModel @Inject constructor(
         editSelectedTool.value = tool
         if (tool != CanvasEditToolId.Brush) {
             activeStroke.value = null
+        }
+        if (tool != CanvasEditToolId.Move) {
+            activeObjectDrag = null
+        }
+        if (tool != CanvasEditToolId.StickyNote &&
+            tool != CanvasEditToolId.Text &&
+            tool != CanvasEditToolId.Frame
+        ) {
+            editInlineEditor.value = CanvasInlineEditorUiState()
         }
         snapGuides.value = emptyList()
     }
@@ -577,6 +597,7 @@ class LauncherViewModel @Inject constructor(
         val stroke = activeStroke.value ?: return
         if (stroke.points.size >= 2) {
             completedStrokes.update { it + stroke }
+            persistStroke(stroke)
         }
         activeStroke.value = null
     }
@@ -584,12 +605,27 @@ class LauncherViewModel @Inject constructor(
     fun onEditEraseAt(worldPoint: WorldPoint) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Eraser) return
         val radiusWorld = ERASER_RADIUS_SCREEN_PX / viewportController.cameraState.value.scale
+        val removedStrokeIds = mutableListOf<String>()
         completedStrokes.update { strokes ->
             strokes.filterNot { stroke ->
-                stroke.points.any { point ->
+                val intersects = stroke.points.any { point ->
                     val dx = point.x - worldPoint.x
                     val dy = point.y - worldPoint.y
                     (dx * dx + dy * dy) <= radiusWorld * radiusWorld
+                }
+                if (intersects) {
+                    removedStrokeIds += stroke.id
+                }
+                intersects
+            }
+        }
+        if (removedStrokeIds.isNotEmpty()) {
+            viewModelScope.launch(dispatchersProvider.io) {
+                removedStrokeIds.forEach { strokeId ->
+                    runCatching { canvasEditDao.deleteStrokeById(strokeId) }
+                        .onFailure { throwable ->
+                            Log.w(TAG, "Failed to delete stroke $strokeId", throwable)
+                        }
                 }
             }
         }
@@ -599,7 +635,12 @@ class LauncherViewModel @Inject constructor(
         noteId: String,
         centerTap: Boolean,
     ) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (activeTool.value != LauncherToolId.Edit) return
+        if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            deleteStickyNote(noteId)
+            return
+        }
+        if (editSelectedTool.value != CanvasEditToolId.Move) return
         val note = stickyNotes.value.firstOrNull { it.id == noteId } ?: return
         if (centerTap) {
             openInlineEditor(
@@ -609,37 +650,50 @@ class LauncherViewModel @Inject constructor(
                 target = CanvasInlineEditorTarget.EditSticky(noteId),
             )
         } else {
+            var resizedNote: CanvasStickyNoteUiState? = null
             stickyNotes.update { notes ->
                 notes.map { current ->
                     if (current.id != noteId) {
                         current
                     } else {
-                        current.copy(
+                        val resized = current.copy(
                             sizeWorld = nextStickySize(current.sizeWorld),
                         )
+                        resizedNote = resized
+                        resized
                     }
                 }
             }
+            resizedNote?.let(::persistStickyNote)
         }
     }
 
     fun onEditStickyLongPress(noteId: String) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        var resizedNote: CanvasStickyNoteUiState? = null
         stickyNotes.update { notes ->
             notes.map { current ->
                 if (current.id != noteId) {
                     current
                 } else {
-                    current.copy(
+                    val resized = current.copy(
                         sizeWorld = nextStickySize(current.sizeWorld),
                     )
+                    resizedNote = resized
+                    resized
                 }
             }
         }
+        resizedNote?.let(::persistStickyNote)
     }
 
     fun onEditTextTap(textId: String) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (activeTool.value != LauncherToolId.Edit) return
+        if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            deleteTextObject(textId)
+            return
+        }
+        if (editSelectedTool.value != CanvasEditToolId.Move) return
         val text = textObjects.value.firstOrNull { it.id == textId } ?: return
         openInlineEditor(
             title = "Edit text",
@@ -650,7 +704,12 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditFrameTap(frameId: String) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (activeTool.value != LauncherToolId.Edit) return
+        if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            deleteFrameObject(frameId)
+            return
+        }
+        if (editSelectedTool.value != CanvasEditToolId.Move) return
         val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
         openInlineEditor(
             title = "Edit frame",
@@ -688,6 +747,9 @@ class LauncherViewModel @Inject constructor(
                     candidate = candidate,
                     anchors = buildSnapAnchors(excludedObject = target),
                     cameraScale = scale,
+                    previousGuides = snapGuides.value,
+                    baseThresholdPx = OBJECT_SNAP_THRESHOLD_SCREEN_PX,
+                    axisInfluencePx = OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX,
                 )
                 frameObjects.update { frames ->
                     frames.map { current ->
@@ -707,6 +769,9 @@ class LauncherViewModel @Inject constructor(
                     candidate = candidate,
                     anchors = buildSnapAnchors(excludedObject = target),
                     cameraScale = scale,
+                    previousGuides = snapGuides.value,
+                    baseThresholdPx = OBJECT_SNAP_THRESHOLD_SCREEN_PX,
+                    axisInfluencePx = OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX,
                 )
                 stickyNotes.update { notes ->
                     notes.map { current ->
@@ -726,6 +791,9 @@ class LauncherViewModel @Inject constructor(
                     candidate = candidate,
                     anchors = buildSnapAnchors(excludedObject = target),
                     cameraScale = scale,
+                    previousGuides = snapGuides.value,
+                    baseThresholdPx = OBJECT_SNAP_THRESHOLD_SCREEN_PX,
+                    axisInfluencePx = OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX,
                 )
                 textObjects.update { texts ->
                     texts.map { current ->
@@ -738,6 +806,7 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditObjectDragEnd() {
+        persistDraggedObject(activeObjectDrag)
         activeObjectDrag = null
         snapGuides.value = emptyList()
     }
@@ -755,52 +824,85 @@ class LauncherViewModel @Inject constructor(
             CanvasInlineEditorTarget.None -> Unit
             is CanvasInlineEditorTarget.NewSticky -> {
                 if (text.isNotEmpty()) {
+                    var created: CanvasStickyNoteUiState? = null
                     stickyNotes.update { notes ->
-                        notes + CanvasStickyNoteUiState(
+                        val note = CanvasStickyNoteUiState(
                             id = nextCanvasId(prefix = "sticky"),
                             text = text,
                             center = target.worldPoint,
                             sizeWorld = CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD,
                             colorArgb = editSelectedColorArgb.value,
                         )
+                        created = note
+                        notes + note
                     }
+                    created?.let(::persistStickyNote)
                 }
             }
 
             is CanvasInlineEditorTarget.EditSticky -> {
-                stickyNotes.update { notes ->
-                    notes.map { note ->
-                        if (note.id == target.id) note.copy(text = text) else note
+                if (text.isBlank()) {
+                    deleteStickyNote(target.id)
+                } else {
+                    var edited: CanvasStickyNoteUiState? = null
+                    stickyNotes.update { notes ->
+                        notes.map { note ->
+                            if (note.id == target.id) {
+                                val updated = note.copy(text = text)
+                                edited = updated
+                                updated
+                            } else {
+                                note
+                            }
+                        }
                     }
+                    edited?.let(::persistStickyNote)
                 }
             }
 
             is CanvasInlineEditorTarget.NewText -> {
                 if (text.isNotEmpty()) {
+                    var created: CanvasTextObjectUiState? = null
                     textObjects.update { objects ->
-                        objects + CanvasTextObjectUiState(
+                        val item = CanvasTextObjectUiState(
                             id = nextCanvasId(prefix = "text"),
                             text = text,
                             position = target.worldPoint,
                             textSizeWorld = editTextSizeWorld.value,
                             colorArgb = editSelectedColorArgb.value,
                         )
+                        created = item
+                        objects + item
                     }
+                    created?.let(::persistTextObject)
                 }
             }
 
             is CanvasInlineEditorTarget.EditText -> {
-                textObjects.update { objects ->
-                    objects.map { item ->
-                        if (item.id == target.id) item.copy(text = text) else item
+                if (text.isBlank()) {
+                    deleteTextObject(target.id)
+                } else {
+                    var edited: CanvasTextObjectUiState? = null
+                    textObjects.update { objects ->
+                        objects.map { item ->
+                            if (item.id == target.id) {
+                                val updated = item.copy(text = text)
+                                edited = updated
+                                updated
+                            } else {
+                                item
+                            }
+                        }
                     }
+                    edited?.let(::persistTextObject)
                 }
             }
 
             is CanvasInlineEditorTarget.NewFrame -> {
                 if (text.isNotEmpty()) {
+                    var created: CanvasFrameObjectUiState? = null
                     frameObjects.update { frames ->
-                        frames + CanvasFrameObjectUiState(
+                        val frame = CanvasFrameObjectUiState(
                             id = nextCanvasId(prefix = "frame"),
                             title = text,
                             center = target.worldPoint,
@@ -808,15 +910,30 @@ class LauncherViewModel @Inject constructor(
                             heightWorld = CanvasEditDefaults.DEFAULT_FRAME_HEIGHT_WORLD,
                             colorArgb = editSelectedColorArgb.value,
                         )
+                        created = frame
+                        frames + frame
                     }
+                    created?.let(::persistFrameObject)
                 }
             }
 
             is CanvasInlineEditorTarget.EditFrame -> {
-                frameObjects.update { frames ->
-                    frames.map { frame ->
-                        if (frame.id == target.id) frame.copy(title = text) else frame
+                if (text.isBlank()) {
+                    deleteFrameObject(target.id)
+                } else {
+                    var edited: CanvasFrameObjectUiState? = null
+                    frameObjects.update { frames ->
+                        frames.map { frame ->
+                            if (frame.id == target.id) {
+                                val updated = frame.copy(title = text)
+                                edited = updated
+                                updated
+                            } else {
+                                frame
+                            }
+                        }
                     }
+                    edited?.let(::persistFrameObject)
                 }
             }
         }
@@ -825,6 +942,24 @@ class LauncherViewModel @Inject constructor(
 
     fun onEditInlineEditorCancel() {
         editInlineEditor.value = CanvasInlineEditorUiState()
+    }
+
+    fun onEditClearCustomElements() {
+        if (activeTool.value != LauncherToolId.Edit) return
+        frameObjects.value = emptyList()
+        stickyNotes.value = emptyList()
+        textObjects.value = emptyList()
+        completedStrokes.value = emptyList()
+        activeStroke.value = null
+        snapGuides.value = emptyList()
+        activeObjectDrag = null
+        editInlineEditor.value = CanvasInlineEditorUiState()
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { canvasEditDao.clearAllCustomElements() }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to clear custom elements", throwable)
+                }
+        }
     }
 
     fun collapseToolsPanel() {
@@ -1063,6 +1198,196 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    private suspend fun loadPersistedCustomElements() {
+        val persistedStickyNotes = canvasEditDao.getStickyNotes().map { entity ->
+            CanvasStickyNoteUiState(
+                id = entity.id,
+                text = entity.text,
+                center = WorldPoint(entity.centerX, entity.centerY),
+                sizeWorld = entity.sizeWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
+        val persistedTextObjects = canvasEditDao.getTextObjects().map { entity ->
+            CanvasTextObjectUiState(
+                id = entity.id,
+                text = entity.text,
+                position = WorldPoint(entity.x, entity.y),
+                textSizeWorld = entity.textSizeWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
+        val persistedFrameObjects = canvasEditDao.getFrameObjects().map { entity ->
+            CanvasFrameObjectUiState(
+                id = entity.id,
+                title = entity.title,
+                center = WorldPoint(entity.centerX, entity.centerY),
+                widthWorld = entity.widthWorld,
+                heightWorld = entity.heightWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
+        val persistedStrokes = canvasEditDao.getStrokesWithPoints().map { entity ->
+            entity.toUiState()
+        }
+
+        stickyNotes.value = persistedStickyNotes
+        textObjects.value = persistedTextObjects
+        frameObjects.value = persistedFrameObjects
+        completedStrokes.value = persistedStrokes
+
+        nextCanvasObjectId = max(
+            nextCanvasObjectId,
+            listOf(
+                persistedStickyNotes.map { it.id },
+                persistedTextObjects.map { it.id },
+                persistedFrameObjects.map { it.id },
+                persistedStrokes.map { it.id },
+            )
+                .flatten()
+                .mapNotNull(::extractNumericSuffix)
+                .maxOrNull()
+                ?.plus(1)
+                ?: 0L,
+        )
+    }
+
+    private fun persistDraggedObject(target: CanvasObjectDragTarget?) {
+        when (target) {
+            is CanvasObjectDragTarget.Sticky -> {
+                stickyNotes.value.firstOrNull { it.id == target.id }?.let(::persistStickyNote)
+            }
+
+            is CanvasObjectDragTarget.Text -> {
+                textObjects.value.firstOrNull { it.id == target.id }?.let(::persistTextObject)
+            }
+
+            is CanvasObjectDragTarget.Frame -> {
+                frameObjects.value.firstOrNull { it.id == target.id }?.let(::persistFrameObject)
+            }
+
+            null -> Unit
+        }
+    }
+
+    private fun persistStroke(stroke: CanvasStrokeUiState) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.upsertStrokeWithPoints(
+                    stroke = CanvasStrokeEntity(
+                        id = stroke.id,
+                        colorArgb = stroke.colorArgb,
+                        widthWorld = stroke.widthWorld,
+                    ),
+                    points = stroke.points.mapIndexed { index, point ->
+                        CanvasStrokePointEntity(
+                            strokeId = stroke.id,
+                            pointIndex = index,
+                            x = point.x,
+                            y = point.y,
+                        )
+                    },
+                )
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist stroke ${stroke.id}", throwable)
+            }
+        }
+    }
+
+    private fun persistStickyNote(note: CanvasStickyNoteUiState) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.upsertStickyNote(
+                    CanvasStickyNoteEntity(
+                        id = note.id,
+                        text = note.text,
+                        centerX = note.center.x,
+                        centerY = note.center.y,
+                        sizeWorld = note.sizeWorld,
+                        colorArgb = note.colorArgb,
+                    ),
+                )
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist sticky note ${note.id}", throwable)
+            }
+        }
+    }
+
+    private fun persistTextObject(textObject: CanvasTextObjectUiState) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.upsertTextObject(
+                    CanvasTextObjectEntity(
+                        id = textObject.id,
+                        text = textObject.text,
+                        x = textObject.position.x,
+                        y = textObject.position.y,
+                        textSizeWorld = textObject.textSizeWorld,
+                        colorArgb = textObject.colorArgb,
+                    ),
+                )
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist text object ${textObject.id}", throwable)
+            }
+        }
+    }
+
+    private fun persistFrameObject(frame: CanvasFrameObjectUiState) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.upsertFrameObject(
+                    CanvasFrameObjectEntity(
+                        id = frame.id,
+                        title = frame.title,
+                        centerX = frame.center.x,
+                        centerY = frame.center.y,
+                        widthWorld = frame.widthWorld,
+                        heightWorld = frame.heightWorld,
+                        colorArgb = frame.colorArgb,
+                    ),
+                )
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist frame object ${frame.id}", throwable)
+            }
+        }
+    }
+
+    private fun deleteStickyNote(id: String) {
+        stickyNotes.update { notes -> notes.filterNot { note -> note.id == id } }
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { canvasEditDao.deleteStickyNoteById(id) }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to delete sticky note $id", throwable)
+                }
+        }
+    }
+
+    private fun deleteTextObject(id: String) {
+        textObjects.update { objects -> objects.filterNot { item -> item.id == id } }
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { canvasEditDao.deleteTextObjectById(id) }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to delete text object $id", throwable)
+                }
+        }
+    }
+
+    private fun deleteFrameObject(id: String) {
+        frameObjects.update { frames -> frames.filterNot { frame -> frame.id == id } }
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { canvasEditDao.deleteFrameObjectById(id) }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to delete frame object $id", throwable)
+                }
+        }
+    }
+
+    private fun extractNumericSuffix(id: String): Long? {
+        val index = id.lastIndexOf('-')
+        if (index < 0 || index == id.lastIndex) return null
+        return id.substring(index + 1).toLongOrNull()
+    }
+
     private fun nextStickySize(current: Float): Float {
         val sizes = listOf(
             CanvasEditDefaults.STICKY_MIN_SIZE_WORLD,
@@ -1099,6 +1424,10 @@ class LauncherViewModel @Inject constructor(
             runCatching { syncAppsWithSystemUseCase() }
                 .onFailure { throwable ->
                     Log.e(TAG, "Initial sync failed", throwable)
+                }
+            runCatching { loadPersistedCustomElements() }
+                .onFailure { throwable ->
+                    Log.e(TAG, "Failed to load persisted custom elements", throwable)
                 }
             awaitIconReadiness()
             isInitialized.value = true
@@ -1159,6 +1488,10 @@ class LauncherViewModel @Inject constructor(
     private companion object {
         private const val TAG = "LauncherViewModel"
         private const val ICON_READINESS_TIMEOUT_MS = 2_000L
+        private const val ICON_SNAP_THRESHOLD_SCREEN_PX = 9f
+        private const val ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX = 88f
+        private const val OBJECT_SNAP_THRESHOLD_SCREEN_PX = 12f
+        private const val OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX = 120f
         private const val SEARCH_BASE_OCCLUSION_PX = 64f
         private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
         private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
@@ -1169,6 +1502,17 @@ class LauncherViewModel @Inject constructor(
         private const val BRUSH_MIN_POINT_DISTANCE_WORLD = 2f
         private const val ERASER_RADIUS_SCREEN_PX = 22f
     }
+}
+
+private fun CanvasStrokeWithPointsEntity.toUiState(): CanvasStrokeUiState {
+    return CanvasStrokeUiState(
+        id = stroke.id,
+        points = points
+            .sortedBy { point -> point.pointIndex }
+            .map { point -> WorldPoint(point.x, point.y) },
+        colorArgb = stroke.colorArgb,
+        widthWorld = stroke.widthWorld,
+    )
 }
 
 sealed interface CanvasObjectDragTarget {

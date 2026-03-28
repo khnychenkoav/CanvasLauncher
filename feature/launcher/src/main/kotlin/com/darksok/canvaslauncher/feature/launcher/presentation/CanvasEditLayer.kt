@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +58,10 @@ fun CanvasEditLayer(
     val density = LocalDensity.current
     val scale = cameraState.scale
     val allowsObjectMove = isEditActive && editState.selectedTool == CanvasEditToolId.Move
+    val allowsObjectTap = isEditActive && (
+        editState.selectedTool == CanvasEditToolId.Move ||
+            editState.selectedTool == CanvasEditToolId.Delete
+        )
     val guideColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
 
     Box(
@@ -100,8 +105,8 @@ fun CanvasEditLayer(
                         onObjectDragDelta = onObjectDragDelta,
                         onObjectDragEnd = onObjectDragEnd,
                     )
-                    .pointerInput(allowsObjectMove, frame.id) {
-                        if (!allowsObjectMove) return@pointerInput
+                    .pointerInput(allowsObjectTap, frame.id, editState.selectedTool) {
+                        if (!allowsObjectTap) return@pointerInput
                         detectTapGestures(
                             onTap = { onFrameTap(frame.id) },
                         )
@@ -148,7 +153,7 @@ fun CanvasEditLayer(
             val noteSizePx = (note.sizeWorld * scale).coerceAtLeast(42f)
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(note.colorArgb).copy(alpha = 0.28f),
+                color = Color(note.colorArgb).copy(alpha = 0.92f),
                 tonalElevation = 3.dp,
                 modifier = Modifier
                     .offset {
@@ -166,27 +171,54 @@ fun CanvasEditLayer(
                         onObjectDragDelta = onObjectDragDelta,
                         onObjectDragEnd = onObjectDragEnd,
                     )
-                    .pointerInput(allowsObjectMove, note.id, noteSizePx) {
-                        if (!allowsObjectMove) return@pointerInput
+                    .pointerInput(allowsObjectTap, note.id, noteSizePx, editState.selectedTool) {
+                        if (!allowsObjectTap) return@pointerInput
                         detectTapGestures(
                             onTap = { tapOffset ->
-                                val centerTap = (tapOffset - Offset(noteSizePx / 2f, noteSizePx / 2f))
-                                    .getDistance() <= noteSizePx * 0.22f
+                                val centerTap = if (editState.selectedTool == CanvasEditToolId.Delete) {
+                                    true
+                                } else {
+                                    (tapOffset - Offset(noteSizePx / 2f, noteSizePx / 2f))
+                                        .getDistance() <= noteSizePx * 0.22f
+                                }
                                 onStickyTap(note.id, centerTap)
                             },
                             onLongPress = {
-                                onStickyLongPress(note.id)
+                                if (editState.selectedTool == CanvasEditToolId.Move) {
+                                    onStickyLongPress(note.id)
+                                }
                             },
                         )
                     },
             ) {
-                Text(
-                    text = note.text.ifBlank { "Note" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.offset(x = 10.dp, y = 10.dp),
-                    maxLines = 4,
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val foldSize = size.minDimension * 0.2f
+                        val foldPath = Path().apply {
+                            moveTo(size.width - foldSize, 0f)
+                            lineTo(size.width, 0f)
+                            lineTo(size.width, foldSize)
+                            close()
+                        }
+                        drawPath(
+                            path = foldPath,
+                            color = Color.White.copy(alpha = 0.45f),
+                        )
+                        drawLine(
+                            color = Color.Black.copy(alpha = 0.12f),
+                            start = Offset(size.width - foldSize, 0f),
+                            end = Offset(size.width, foldSize),
+                            strokeWidth = 1.2.dp.toPx(),
+                        )
+                    }
+                    Text(
+                        text = note.text.ifBlank { "Note" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        maxLines = 8,
+                    )
+                }
             }
         }
 
@@ -212,8 +244,8 @@ fun CanvasEditLayer(
                         onObjectDragDelta = onObjectDragDelta,
                         onObjectDragEnd = onObjectDragEnd,
                     )
-                    .pointerInput(allowsObjectMove, textObject.id) {
-                        if (!allowsObjectMove) return@pointerInput
+                    .pointerInput(allowsObjectTap, textObject.id) {
+                        if (!allowsObjectTap) return@pointerInput
                         detectTapGestures(
                             onTap = { onTextTap(textObject.id) },
                         )
@@ -324,6 +356,7 @@ private fun Modifier.canvasInputModifier(
         CanvasEditToolId.StickyNote,
         CanvasEditToolId.Text,
         CanvasEditToolId.Frame,
+        CanvasEditToolId.Delete,
         -> {
             pointerInput(cameraState, selectedTool) {
                 detectTapGestures(

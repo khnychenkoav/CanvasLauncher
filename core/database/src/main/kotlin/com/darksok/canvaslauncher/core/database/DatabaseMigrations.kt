@@ -1,11 +1,79 @@
 package com.darksok.canvaslauncher.core.database
 
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DatabaseMigrations {
-    /**
-     * Keep explicit migrations here when schema version is incremented.
-     * MVP starts at v1, so migration array is intentionally empty.
-     */
-    val ALL: Array<Migration> = emptyArray()
+
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_sticky_notes_table` (
+                    `id` TEXT NOT NULL,
+                    `text` TEXT NOT NULL,
+                    `centerX` REAL NOT NULL,
+                    `centerY` REAL NOT NULL,
+                    `sizeWorld` REAL NOT NULL,
+                    `colorArgb` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_text_objects_table` (
+                    `id` TEXT NOT NULL,
+                    `text` TEXT NOT NULL,
+                    `x` REAL NOT NULL,
+                    `y` REAL NOT NULL,
+                    `textSizeWorld` REAL NOT NULL,
+                    `colorArgb` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_frame_objects_table` (
+                    `id` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `centerX` REAL NOT NULL,
+                    `centerY` REAL NOT NULL,
+                    `widthWorld` REAL NOT NULL,
+                    `heightWorld` REAL NOT NULL,
+                    `colorArgb` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_strokes_table` (
+                    `id` TEXT NOT NULL,
+                    `colorArgb` INTEGER NOT NULL,
+                    `widthWorld` REAL NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_stroke_points_table` (
+                    `strokeId` TEXT NOT NULL,
+                    `pointIndex` INTEGER NOT NULL,
+                    `x` REAL NOT NULL,
+                    `y` REAL NOT NULL,
+                    PRIMARY KEY(`strokeId`, `pointIndex`),
+                    FOREIGN KEY(`strokeId`) REFERENCES `canvas_strokes_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_canvas_stroke_points_table_strokeId` ON `canvas_stroke_points_table` (`strokeId`)",
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
 }

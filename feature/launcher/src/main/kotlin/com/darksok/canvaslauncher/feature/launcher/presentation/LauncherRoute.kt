@@ -235,6 +235,7 @@ fun LauncherRoute(
                             onEditInlineEditorValueChanged = viewModel::onEditInlineEditorValueChanged,
                             onEditInlineEditorConfirm = viewModel::onEditInlineEditorConfirm,
                             onEditInlineEditorCancel = viewModel::onEditInlineEditorCancel,
+                            onEditClearCustomElements = viewModel::onEditClearCustomElements,
                         )
                     }
                 }

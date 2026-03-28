@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.darksok.canvaslauncher.core.database.CanvasLauncherDatabase
 import com.darksok.canvaslauncher.core.database.DatabaseMigrations
 import com.darksok.canvaslauncher.core.database.dao.AppDao
+import com.darksok.canvaslauncher.core.database.dao.CanvasEditDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -35,4 +36,7 @@ object DatabaseModule {
 
     @Provides
     fun provideAppDao(database: CanvasLauncherDatabase): AppDao = database.appDao()
+
+    @Provides
+    fun provideCanvasEditDao(database: CanvasLauncherDatabase): CanvasEditDao = database.canvasEditDao()
 }

@@ -9,6 +9,7 @@ enum class CanvasEditToolId {
     StickyNote,
     Text,
     Frame,
+    Delete,
 }
 
 enum class CanvasSnapOrientation {

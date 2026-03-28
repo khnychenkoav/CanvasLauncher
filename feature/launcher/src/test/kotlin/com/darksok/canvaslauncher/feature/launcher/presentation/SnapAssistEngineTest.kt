@@ -35,4 +35,35 @@ class SnapAssistEngineTest {
         assertThat(result.position).isEqualTo(WorldPoint(10f, 10f))
         assertThat(result.guides).isEmpty()
     }
+
+    @Test
+    fun `does not snap to axis when anchor is too far on orthogonal direction`() {
+        val result = SnapAssistEngine.snap(
+            candidate = WorldPoint(10f, 10f),
+            anchors = listOf(
+                WorldPoint(12f, 250f),
+            ),
+            cameraScale = 1f,
+        )
+
+        assertThat(result.position).isEqualTo(WorldPoint(10f, 10f))
+        assertThat(result.guides).isEmpty()
+    }
+
+    @Test
+    fun `keeps previous snapped guide until release threshold is exceeded`() {
+        val result = SnapAssistEngine.snap(
+            candidate = WorldPoint(10.5f, 14f),
+            anchors = listOf(
+                WorldPoint(50f, 14f),
+            ),
+            cameraScale = 1f,
+            previousGuides = listOf(
+                CanvasSnapGuideUiState(CanvasSnapOrientation.Vertical, 10f),
+            ),
+        )
+
+        assertThat(result.position.x).isEqualTo(10f)
+        assertThat(result.guides).contains(CanvasSnapGuideUiState(CanvasSnapOrientation.Vertical, 10f))
+    }
 }

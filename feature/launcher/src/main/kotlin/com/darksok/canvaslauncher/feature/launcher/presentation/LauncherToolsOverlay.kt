@@ -25,6 +25,24 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ViewList
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.AutoFixOff
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CropSquare
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.OpenWith
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,10 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -54,7 +69,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.darksok.canvaslauncher.feature.launcher.R
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
@@ -78,6 +92,7 @@ fun LauncherToolsOverlay(
     onEditInlineEditorValueChanged: (String) -> Unit,
     onEditInlineEditorConfirm: () -> Unit,
     onEditInlineEditorCancel: () -> Unit,
+    onEditClearCustomElements: () -> Unit,
 ) {
     val view = LocalView.current
     val density = LocalDensity.current
@@ -169,7 +184,11 @@ fun LauncherToolsOverlay(
                                     .padding(start = ToolPanelUiConstants.SEARCH_ROW_GAP)
                                     .size(ToolPanelUiConstants.BUTTON_SIZE),
                             ) {
-                                CloseGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
                             }
                         }
                     }
@@ -185,6 +204,7 @@ fun LauncherToolsOverlay(
                             onInlineEditorValueChanged = onEditInlineEditorValueChanged,
                             onInlineEditorConfirm = onEditInlineEditorConfirm,
                             onInlineEditorCancel = onEditInlineEditorCancel,
+                            onClearCustomElements = onEditClearCustomElements,
                             onClose = onEditClose,
                         )
                     }
@@ -210,19 +230,35 @@ fun LauncherToolsOverlay(
                                         ) {
                                             when (tool.id) {
                                                 LauncherToolId.Search -> {
-                                                    SearchGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Search,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    )
                                                 }
 
                                                 LauncherToolId.AppsList -> {
-                                                    AppsListGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Rounded.ViewList,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    )
                                                 }
 
                                                 LauncherToolId.Edit -> {
-                                                    PencilGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Edit,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    )
                                                 }
 
                                                 LauncherToolId.Settings -> {
-                                                    SettingsGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Settings,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    )
                                                 }
                                             }
                                         }
@@ -233,7 +269,11 @@ fun LauncherToolsOverlay(
                                 onClick = onToolsToggle,
                                 modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
                             ) {
-                                GridNineGlyph(color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Icon(
+                                    imageVector = Icons.Rounded.Apps,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
                             }
                         }
                     }
@@ -317,7 +357,11 @@ private fun SearchInputPill(
                 modifier = Modifier.size(44.dp),
                 usePrimaryContainer = false,
             ) {
-                SearchGlyph(color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
 
             BasicTextField(
@@ -371,6 +415,7 @@ private fun EditPanelContent(
     onInlineEditorValueChanged: (String) -> Unit,
     onInlineEditorConfirm: () -> Unit,
     onInlineEditorCancel: () -> Unit,
+    onClearCustomElements: () -> Unit,
     onClose: () -> Unit,
 ) {
     Column(
@@ -390,22 +435,52 @@ private fun EditPanelContent(
                 CanvasEditToolId.StickyNote,
                 CanvasEditToolId.Text,
                 CanvasEditToolId.Frame,
+                CanvasEditToolId.Delete,
             )
             editTools.forEachIndexed { index, toolId ->
                 ToolCircleButton(
                     onClick = { onToolSelected(toolId) },
                     modifier = Modifier
-                        .padding(start = if (index == 0) 0.dp else 6.dp)
-                        .size(44.dp),
+                        .padding(start = if (index == 0) 0.dp else 4.dp)
+                        .size(38.dp),
                     usePrimaryContainer = editState.selectedTool == toolId,
                 ) {
                     when (toolId) {
-                        CanvasEditToolId.Move -> MoveGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
-                        CanvasEditToolId.Brush -> BrushGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
-                        CanvasEditToolId.Eraser -> EraserGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
-                        CanvasEditToolId.StickyNote -> StickyGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
-                        CanvasEditToolId.Text -> TextGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
-                        CanvasEditToolId.Frame -> FrameGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                        CanvasEditToolId.Move -> Icon(
+                            imageVector = Icons.Rounded.OpenWith,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.Brush -> Icon(
+                            imageVector = Icons.Rounded.Brush,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.Eraser -> Icon(
+                            imageVector = Icons.Rounded.AutoFixOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.StickyNote -> Icon(
+                            imageVector = Icons.Rounded.Description,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.Text -> Icon(
+                            imageVector = Icons.Rounded.TextFields,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.Frame -> Icon(
+                            imageVector = Icons.Rounded.CropSquare,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        CanvasEditToolId.Delete -> Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                     }
                 }
             }
@@ -413,10 +488,14 @@ private fun EditPanelContent(
             ToolCircleButton(
                 onClick = onClose,
                 modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(ToolPanelUiConstants.BUTTON_SIZE),
+                    .padding(start = 6.dp)
+                    .size(44.dp),
             ) {
-                CloseGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
         }
 
@@ -463,7 +542,11 @@ private fun EditPanelContent(
                     modifier = Modifier.size(36.dp),
                     usePrimaryContainer = false,
                 ) {
-                    MinusGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(
+                        imageVector = Icons.Rounded.Remove,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
                 ToolCircleButton(
                     onClick = {
@@ -478,12 +561,47 @@ private fun EditPanelContent(
                         .size(36.dp),
                     usePrimaryContainer = false,
                 ) {
-                    PlusGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
             }
         }
 
+        Surface(
+            onClick = onClearCustomElements,
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+            tonalElevation = 3.dp,
+            modifier = Modifier.height(40.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Text(
+                    text = stringResource(R.string.edit_clear_custom_elements),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    maxLines = 1,
+                )
+            }
+        }
+
         if (editState.inlineEditor.isVisible) {
+            Text(
+                text = editState.inlineEditor.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+            )
             EditInlineEditorPill(
                 state = editState.inlineEditor,
                 maxWidth = maxWidth,
@@ -555,7 +673,11 @@ private fun EditInlineEditorPill(
                 modifier = Modifier.size(38.dp),
                 usePrimaryContainer = false,
             ) {
-                CheckGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
             ToolCircleButton(
                 onClick = onCancel,
@@ -564,7 +686,11 @@ private fun EditInlineEditorPill(
                     .size(38.dp),
                 usePrimaryContainer = false,
             ) {
-                CloseGlyph(MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
         }
     }
@@ -617,371 +743,6 @@ private fun ToolCircleButton(
             content()
         }
     }
-}
-
-@Composable
-private fun GridNineGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val cell = size.minDimension / 4f
-        val radius = min(cell * 0.25f, 2.4.dp.toPx())
-        for (x in 1..3) {
-            for (y in 1..3) {
-                drawCircle(
-                    color = color,
-                    radius = radius,
-                    center = Offset(cell * x, cell * y),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SearchGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val radius = size.minDimension * 0.28f
-        val center = Offset(size.minDimension * 0.44f, size.minDimension * 0.44f)
-        val strokeWidth = 2.2.dp.toPx()
-        drawCircle(
-            color = color,
-            radius = radius,
-            center = center,
-            style = Stroke(width = strokeWidth),
-        )
-        drawLine(
-            color = color,
-            start = Offset(center.x + radius * 0.68f, center.y + radius * 0.68f),
-            end = Offset(size.width * 0.88f, size.height * 0.88f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun CloseGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val strokeWidth = 2.4.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.2f),
-            end = Offset(size.width * 0.8f, size.height * 0.8f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.8f, size.height * 0.2f),
-            end = Offset(size.width * 0.2f, size.height * 0.8f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun CheckGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(20.dp)) {
-        val strokeWidth = 2.2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.15f, size.height * 0.55f),
-            end = Offset(size.width * 0.42f, size.height * 0.8f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.42f, size.height * 0.8f),
-            end = Offset(size.width * 0.86f, size.height * 0.2f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun PlusGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(18.dp)) {
-        val strokeWidth = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.5f),
-            end = Offset(size.width * 0.8f, size.height * 0.5f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.5f, size.height * 0.2f),
-            end = Offset(size.width * 0.5f, size.height * 0.8f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun MinusGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(18.dp)) {
-        val strokeWidth = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.5f),
-            end = Offset(size.width * 0.8f, size.height * 0.5f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun PencilGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val strokeWidth = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.78f),
-            end = Offset(size.width * 0.78f, size.height * 0.2f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.64f, size.height * 0.2f),
-            end = Offset(size.width * 0.78f, size.height * 0.36f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.78f),
-            end = Offset(size.width * 0.36f, size.height * 0.64f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun MoveGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 2.dp.toPx()
-        drawLine(color, Offset(size.width * 0.5f, size.height * 0.15f), Offset(size.width * 0.5f, size.height * 0.85f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.15f, size.height * 0.5f), Offset(size.width * 0.85f, size.height * 0.5f), stroke, StrokeCap.Round)
-    }
-}
-
-@Composable
-private fun BrushGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.3f, size.height * 0.2f),
-            end = Offset(size.width * 0.7f, size.height * 0.6f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-        drawCircle(
-            color = color,
-            radius = size.minDimension * 0.12f,
-            center = Offset(size.width * 0.7f, size.height * 0.72f),
-        )
-    }
-}
-
-@Composable
-private fun EraserGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.25f, size.height * 0.72f),
-            end = Offset(size.width * 0.72f, size.height * 0.25f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.18f, size.height * 0.78f),
-            end = Offset(size.width * 0.78f, size.height * 0.78f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun StickyGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 1.8.dp.toPx()
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(size.width * 0.2f, size.height * 0.18f),
-            size = androidx.compose.ui.geometry.Size(size.width * 0.58f, size.height * 0.58f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-            style = Stroke(width = stroke),
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.58f, size.height * 0.76f),
-            end = Offset(size.width * 0.78f, size.height * 0.56f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun TextGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.2f, size.height * 0.24f),
-            end = Offset(size.width * 0.8f, size.height * 0.24f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.5f, size.height * 0.24f),
-            end = Offset(size.width * 0.5f, size.height * 0.8f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round,
-        )
-    }
-}
-
-@Composable
-private fun FrameGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(22.dp)) {
-        val stroke = 1.8.dp.toPx()
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(size.width * 0.16f, size.height * 0.2f),
-            size = androidx.compose.ui.geometry.Size(size.width * 0.68f, size.height * 0.58f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx()),
-            style = Stroke(width = stroke),
-        )
-    }
-}
-
-@Composable
-private fun SettingsGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val outerRadius = size.minDimension * 0.32f
-        val innerRadius = size.minDimension * 0.14f
-        val stroke = 2.dp.toPx()
-        drawCircle(
-            color = color,
-            radius = outerRadius,
-            center = center,
-            style = Stroke(width = stroke),
-        )
-        drawCircle(
-            color = color,
-            radius = innerRadius,
-            center = center,
-        )
-        for (index in 0 until 8) {
-            val angle = (index * 45f).toRadians()
-            val cos = kotlin.math.cos(angle).toFloat()
-            val sin = kotlin.math.sin(angle).toFloat()
-            val start = Offset(
-                x = center.x + cos * (outerRadius + 1.dp.toPx()),
-                y = center.y + sin * (outerRadius + 1.dp.toPx()),
-            )
-            val end = Offset(
-                x = center.x + cos * (outerRadius + 4.dp.toPx()),
-                y = center.y + sin * (outerRadius + 4.dp.toPx()),
-            )
-            drawLine(
-                color = color,
-                start = start,
-                end = end,
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-        }
-    }
-}
-
-@Composable
-private fun AppsListGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val stroke = 2.dp.toPx()
-        val top = size.height * 0.24f
-        val gap = size.height * 0.24f
-        val startX = size.width * 0.28f
-        val endX = size.width * 0.82f
-        for (index in 0..2) {
-            val y = top + gap * index
-            drawCircle(
-                color = color,
-                radius = 1.5.dp.toPx(),
-                center = Offset(size.width * 0.16f, y),
-            )
-            drawLine(
-                color = color,
-                start = Offset(startX, y),
-                end = Offset(endX, y),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-        }
-    }
-}
-
-private fun Float.toRadians(): Double {
-    return this * (Math.PI / 180.0)
 }
 
 internal object SearchSuggestionTextFormatter {
