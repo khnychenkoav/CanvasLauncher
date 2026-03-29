@@ -98,11 +98,15 @@ fun LauncherRoute(
     BackHandler(enabled = uiState.toolsState.isEditActive) {
         viewModel.onEditClose()
     }
+    BackHandler(enabled = uiState.toolsState.isWidgetsActive) {
+        viewModel.onWidgetsClose()
+    }
     BackHandler(
         enabled = uiState.toolsState.isExpanded &&
             !uiState.toolsState.isSearchActive &&
             !uiState.toolsState.isAppsListActive &&
-            !uiState.toolsState.isEditActive,
+            !uiState.toolsState.isEditActive &&
+            !uiState.toolsState.isWidgetsActive,
     ) {
         viewModel.collapseToolsPanel()
     }
@@ -170,10 +174,13 @@ fun LauncherRoute(
                     CanvasEditLayer(
                         cameraState = uiState.cameraState,
                         isEditActive = uiState.toolsState.isEditActive,
+                        isWidgetMode = uiState.toolsState.isWidgetsActive,
                         editState = uiState.toolsState.edit,
                         frames = uiState.frames,
+                        widgets = uiState.widgets,
                         frameDraft = uiState.frameDraft,
                         selectedFrameIdForResize = uiState.selectedFrameIdForResize,
+                        selectedWidgetIdForResize = uiState.selectedWidgetId,
                         selectionDraft = uiState.selectionDraft,
                         selectionBounds = uiState.selectionBounds,
                         hasActiveSelection = uiState.hasActiveSelection,
@@ -204,6 +211,12 @@ fun LauncherRoute(
                         onStickyTap = viewModel::onEditStickyTap,
                         onStickyLongPress = viewModel::onEditStickyLongPress,
                         onTextTap = viewModel::onEditTextTap,
+                        onWidgetTap = viewModel::onWidgetTap,
+                        onWidgetBackgroundTap = viewModel::onWidgetBackgroundTap,
+                        onWidgetResizeStart = viewModel::onWidgetResizeStart,
+                        onWidgetResizeDrag = viewModel::onWidgetResizeDrag,
+                        onWidgetResizeEnd = viewModel::onWidgetResizeEnd,
+                        onWidgetDeleteTap = viewModel::onWidgetDeleteSelected,
                         onFrameTap = viewModel::onEditFrameTap,
                         onFrameBorderTap = viewModel::onEditFrameBorderTap,
                         onFrameResizeStart = viewModel::onEditFrameResizeStart,
@@ -217,6 +230,7 @@ fun LauncherRoute(
                     if (!uiState.toolsState.isSearchActive &&
                         !uiState.toolsState.isAppsListActive &&
                         !uiState.toolsState.isEditActive &&
+                        !uiState.toolsState.isWidgetsActive &&
                         MiniMapProjector.shouldShow(uiState.cameraState.scale)
                     ) {
                         MiniMapOverlay(
@@ -264,7 +278,8 @@ fun LauncherRoute(
                                 when (tool) {
                                     LauncherToolId.Search,
                                     LauncherToolId.AppsList,
-                                    LauncherToolId.Edit -> viewModel.onToolSelected(tool)
+                                    LauncherToolId.Edit,
+                                    LauncherToolId.Widgets -> viewModel.onToolSelected(tool)
 
                                     LauncherToolId.Settings -> {
                                         viewModel.collapseToolsPanel()
@@ -298,6 +313,8 @@ fun LauncherRoute(
                             onEditInlineEditorConfirm = viewModel::onEditInlineEditorConfirm,
                             onEditInlineEditorCancel = viewModel::onEditInlineEditorCancel,
                             onEditClearCustomElements = viewModel::onEditClearCustomElements,
+                            onWidgetsClose = viewModel::onWidgetsClose,
+                            onWidgetCatalogItemSelected = viewModel::onWidgetCatalogItemSelected,
                         )
                     }
                 }

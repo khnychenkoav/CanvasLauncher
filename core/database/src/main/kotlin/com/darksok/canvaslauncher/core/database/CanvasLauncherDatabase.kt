@@ -10,6 +10,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasWidgetEntity
 
 @Database(
     entities = [
@@ -17,10 +18,11 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
         CanvasStickyNoteEntity::class,
         CanvasTextObjectEntity::class,
         CanvasFrameObjectEntity::class,
+        CanvasWidgetEntity::class,
         CanvasStrokeEntity::class,
         CanvasStrokePointEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class CanvasLauncherDatabase : RoomDatabase() {

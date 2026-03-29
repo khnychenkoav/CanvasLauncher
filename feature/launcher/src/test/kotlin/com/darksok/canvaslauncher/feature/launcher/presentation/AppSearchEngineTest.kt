@@ -41,4 +41,54 @@ class AppSearchEngineTest {
 
         assertThat(result.firstOrNull()?.label).isEqualTo("Mailbox")
     }
+
+    @Test
+    fun `typo still finds expected app`() {
+        val result = AppSearchEngine.rankByLabel(query = "calemdar", apps = apps)
+
+        assertThat(result.firstOrNull()?.label).isEqualTo("Calendar")
+    }
+
+    @Test
+    fun `latin transliteration matches cyrillic label`() {
+        val translitApps = listOf(
+            CanvasApp(packageName = "com.android.dialer", label = "Звонок", position = WorldPoint(0f, 0f)),
+            CanvasApp(packageName = "com.android.camera", label = "Камера", position = WorldPoint(10f, 0f)),
+        )
+
+        val result = AppSearchEngine.rankByLabel(query = "zvonok", apps = translitApps)
+
+        assertThat(result.firstOrNull()?.label).isEqualTo("Звонок")
+    }
+
+    @Test
+    fun `wrong keyboard layout still resolves query`() {
+        val result = AppSearchEngine.rankByLabel(query = "сфьукф", apps = apps)
+
+        assertThat(result.firstOrNull()?.label).isEqualTo("Camera Pro")
+    }
+
+    @Test
+    fun `english call query matches russian phone app`() {
+        val localizedApps = listOf(
+            CanvasApp(packageName = "com.android.dialer", label = "Звонок", position = WorldPoint(0f, 0f)),
+            CanvasApp(packageName = "com.android.gallery", label = "Галерея", position = WorldPoint(10f, 0f)),
+        )
+
+        val result = AppSearchEngine.rankByLabel(query = "call", apps = localizedApps)
+
+        assertThat(result.firstOrNull()?.label).isEqualTo("Звонок")
+    }
+
+    @Test
+    fun `russian call query matches english phone app`() {
+        val localizedApps = listOf(
+            CanvasApp(packageName = "com.android.dialer", label = "Call", position = WorldPoint(0f, 0f)),
+            CanvasApp(packageName = "com.android.camera", label = "Camera", position = WorldPoint(10f, 0f)),
+        )
+
+        val result = AppSearchEngine.rankByLabel(query = "звонок", apps = localizedApps)
+
+        assertThat(result.firstOrNull()?.label).isEqualTo("Call")
+    }
 }

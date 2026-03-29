@@ -22,6 +22,7 @@ class LauncherToolsStateTest {
             LauncherToolId.Search,
             LauncherToolId.AppsList,
             LauncherToolId.Edit,
+            LauncherToolId.Widgets,
             LauncherToolId.Settings,
         ).inOrder()
     }

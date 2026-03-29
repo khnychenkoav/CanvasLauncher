@@ -83,5 +83,24 @@ object DatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `canvas_widgets_table` (
+                    `id` TEXT NOT NULL,
+                    `type` TEXT NOT NULL,
+                    `centerX` REAL NOT NULL,
+                    `centerY` REAL NOT NULL,
+                    `widthWorld` REAL NOT NULL,
+                    `heightWorld` REAL NOT NULL,
+                    `colorArgb` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent(),
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

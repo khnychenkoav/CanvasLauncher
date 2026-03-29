@@ -56,6 +56,19 @@ data class CanvasFrameObjectUiState(
     val colorArgb: Int,
 )
 
+enum class CanvasWidgetType {
+    ClockDigital,
+}
+
+data class CanvasWidgetUiState(
+    val id: String,
+    val type: CanvasWidgetType,
+    val center: WorldPoint,
+    val widthWorld: Float,
+    val heightWorld: Float,
+    val colorArgb: Int = 0xFF72E38C.toInt(),
+)
+
 data class CanvasFrameDraftUiState(
     val startCorner: WorldPoint,
     val endCorner: WorldPoint,
@@ -145,6 +158,10 @@ object CanvasEditDefaults {
     const val DEFAULT_FRAME_HEIGHT_WORLD: Float = 360f
     const val STICKY_MIN_SIZE_WORLD: Float = 150f
     const val STICKY_MAX_SIZE_WORLD: Float = 320f
+    const val DEFAULT_WIDGET_WIDTH_WORLD: Float = 340f
+    const val DEFAULT_WIDGET_HEIGHT_WORLD: Float = 140f
+    const val WIDGET_MIN_WIDTH_WORLD: Float = 180f
+    const val WIDGET_MIN_HEIGHT_WORLD: Float = 88f
     val PALETTE: List<Int> = listOf(
         0xFF2E7D32.toInt(),
         0xFFE65100.toInt(),

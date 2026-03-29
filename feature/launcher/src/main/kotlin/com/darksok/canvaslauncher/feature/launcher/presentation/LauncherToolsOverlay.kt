@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -44,6 +48,7 @@ import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -97,6 +102,8 @@ fun LauncherToolsOverlay(
     onEditInlineEditorConfirm: () -> Unit,
     onEditInlineEditorCancel: () -> Unit,
     onEditClearCustomElements: () -> Unit,
+    onWidgetsClose: () -> Unit,
+    onWidgetCatalogItemSelected: (CanvasWidgetType) -> Unit,
 ) {
     val view = LocalView.current
     val density = LocalDensity.current
@@ -116,6 +123,7 @@ fun LauncherToolsOverlay(
     val bottomLiftPx = if (imeBottomPx > 0) keyboardOverlapPx else navigationBottomPx
     val effectiveBottomLiftPx = if (toolsState.isSearchActive) bottomLiftPx else navigationBottomPx
     val bottomLiftDp = with(density) { effectiveBottomLiftPx.toDp() }
+    val widgetsPanelHeightDp = with(density) { (rootHeightPx / 3f).toDp() }.coerceAtLeast(220.dp)
     val isKeyboardVisible = imeBottomPx > navigationBottomPx
     val keyboardController = LocalSoftwareKeyboardController.current
     var toolsContentHeightPx by remember { mutableStateOf(0) }
@@ -214,6 +222,15 @@ fun LauncherToolsOverlay(
                         )
                     }
 
+                    LauncherToolId.Widgets -> {
+                        WidgetsPanelContent(
+                            widgetsState = toolsState.widgets,
+                            panelHeight = widgetsPanelHeightDp,
+                            onCatalogItemSelected = onWidgetCatalogItemSelected,
+                            onClose = onWidgetsClose,
+                        )
+                    }
+
                     else -> {
                         val quickTools = toolsState.tools.filterNot { it.id == LauncherToolId.Search }
                         Column(
@@ -274,6 +291,14 @@ fun LauncherToolsOverlay(
                                                     )
                                                 }
 
+                                                LauncherToolId.Widgets -> {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Widgets,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    )
+                                                }
+
                                                 LauncherToolId.Search -> Unit
                                             }
                                         }
@@ -290,6 +315,89 @@ fun LauncherToolsOverlay(
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetsPanelContent(
+    widgetsState: WidgetsUiState,
+    panelHeight: androidx.compose.ui.unit.Dp,
+    onCatalogItemSelected: (CanvasWidgetType) -> Unit,
+    onClose: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.96f),
+        tonalElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 180.dp, max = panelHeight),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = stringResource(id = R.string.widgets_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                ToolCircleButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(42.dp),
+                    usePrimaryContainer = false,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                items(widgetsState.items, key = { item -> item.id }) { item ->
+                    Surface(
+                        onClick = { onCatalogItemSelected(item.widgetType) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        ) {
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = item.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f),
+                            )
                         }
                     }
                 }

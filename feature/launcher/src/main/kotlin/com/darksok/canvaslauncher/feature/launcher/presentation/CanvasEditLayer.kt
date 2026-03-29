@@ -20,6 +20,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -51,19 +54,26 @@ import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.performance.WorldScreenTransformer
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @Composable
 fun CanvasEditLayer(
     cameraState: CameraState,
     isEditActive: Boolean,
+    isWidgetMode: Boolean,
     editState: EditUiState,
     frames: List<CanvasFrameObjectUiState>,
+    widgets: List<CanvasWidgetUiState>,
     frameDraft: CanvasFrameDraftUiState?,
     selectedFrameIdForResize: String?,
+    selectedWidgetIdForResize: String?,
     selectionDraft: CanvasSelectionDraftUiState?,
     selectionBounds: CanvasSelectionBoundsUiState?,
     hasActiveSelection: Boolean,
@@ -94,6 +104,12 @@ fun CanvasEditLayer(
     onStickyTap: (id: String, centerTap: Boolean) -> Unit,
     onStickyLongPress: (id: String) -> Unit,
     onTextTap: (id: String) -> Unit,
+    onWidgetTap: (id: String) -> Unit,
+    onWidgetBackgroundTap: () -> Unit,
+    onWidgetResizeStart: (CanvasFrameResizeHandle) -> Unit,
+    onWidgetResizeDrag: (CanvasFrameResizeHandle, ScreenPoint) -> Unit,
+    onWidgetResizeEnd: () -> Unit,
+    onWidgetDeleteTap: () -> Unit,
     onFrameTap: (id: String) -> Unit,
     onFrameBorderTap: (id: String) -> Unit,
     onFrameResizeStart: (id: String, handle: CanvasFrameResizeHandle) -> Unit,
@@ -105,6 +121,7 @@ fun CanvasEditLayer(
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val digitalClockText = rememberDigitalClockText()
     val scale = cameraState.scale
     val allowsObjectMove = isEditActive && editState.selectedTool == CanvasEditToolId.Move
     val allowsObjectTap = isEditActive && (
@@ -114,6 +131,7 @@ fun CanvasEditLayer(
     val allowsFrameBorderSelection = isEditActive && editState.selectedTool == CanvasEditToolId.Move
     val showsSelectionOverlay = isEditActive && editState.selectedTool == CanvasEditToolId.Selection
     val guideColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+    val widgetSelectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f)
     val frameCornerRadiusPx = with(density) { FRAME_CORNER_RADIUS_DP.toPx() }
     val frameBorderStrokePx = with(density) { FRAME_BORDER_STROKE_DP.toPx() }
     val frameBorderHitWidthPx = with(density) { FRAME_BORDER_TAP_HIT_DP.toPx() }
@@ -666,6 +684,169 @@ fun CanvasEditLayer(
             )
         }
 
+        if (isWidgetMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0.75f)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { onWidgetBackgroundTap() },
+                        )
+                    },
+            )
+        }
+
+        widgets.forEach { widget ->
+            val center = WorldScreenTransformer.worldToScreen(widget.center, cameraState)
+            val widgetWidthPx = (widget.widthWorld * scale).coerceAtLeast(56f)
+            val widgetHeightPx = (widget.heightWorld * scale).coerceAtLeast(42f)
+            val widgetLeftPx = center.x - widgetWidthPx / 2f
+            val widgetTopPx = center.y - widgetHeightPx / 2f
+            val isSelected = isWidgetMode && selectedWidgetIdForResize == widget.id
+            val centerZoneWidthPx = (widgetWidthPx * WIDGET_CENTER_DRAG_WIDTH_FACTOR)
+                .coerceIn(48f, widgetWidthPx)
+            val centerZoneHeightPx = (widgetHeightPx * WIDGET_CENTER_DRAG_HEIGHT_FACTOR)
+                .coerceIn(36f, widgetHeightPx)
+            val centerZoneLeftPx = center.x - centerZoneWidthPx / 2f
+            val centerZoneTopPx = center.y - centerZoneHeightPx / 2f
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                tonalElevation = 4.dp,
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            x = widgetLeftPx.roundToInt(),
+                            y = widgetTopPx.roundToInt(),
+                        )
+                    }
+                    .size(
+                        width = with(density) { widgetWidthPx.toDp() },
+                        height = with(density) { widgetHeightPx.toDp() },
+                    )
+                    .zIndex(0.78f)
+                    .then(
+                        if (isWidgetMode) {
+                            Modifier.pointerInput(widget.id) {
+                                detectTapGestures(
+                                    onTap = { onWidgetTap(widget.id) },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                                ),
+                            ),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (widget.type == CanvasWidgetType.ClockDigital) {
+                        Text(
+                            text = digitalClockText,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(widget.colorArgb),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = centerZoneLeftPx.roundToInt(),
+                                y = centerZoneTopPx.roundToInt(),
+                            )
+                        }
+                        .size(
+                            width = with(density) { centerZoneWidthPx.toDp() },
+                            height = with(density) { centerZoneHeightPx.toDp() },
+                        )
+                        .zIndex(0.81f)
+                        .objectMoveModifier(
+                            enabled = true,
+                            target = CanvasObjectDragTarget.Widget(widget.id),
+                            nodeTopLeftScreen = ScreenPoint(
+                                x = centerZoneLeftPx,
+                                y = centerZoneTopPx,
+                            ),
+                            canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
+                            canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
+                            autoPanZonePx = autoPanZonePx,
+                            autoPanMaxStepPx = autoPanMaxStepPx,
+                            onObjectDragStart = onObjectDragStart,
+                            onObjectDragDelta = onObjectDragDelta,
+                            onObjectDragEnd = onObjectDragEnd,
+                            onAutoPanDelta = onAutoPanDelta,
+                        ),
+                )
+                Canvas(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = widgetLeftPx.roundToInt(),
+                                y = widgetTopPx.roundToInt(),
+                            )
+                        }
+                        .size(
+                            width = with(density) { widgetWidthPx.toDp() },
+                            height = with(density) { widgetHeightPx.toDp() },
+                        )
+                        .zIndex(0.82f),
+                ) {
+                    drawRoundRect(
+                        color = widgetSelectionColor,
+                        cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
+                        style = Stroke(
+                            width = frameBorderStrokePx,
+                            pathEffect = PathEffect.dashPathEffect(
+                                intervals = floatArrayOf(12f, 8f),
+                                phase = 0f,
+                            ),
+                        ),
+                    )
+                }
+                FrameResizeHandles(
+                    frameId = widget.id,
+                    frameLeftPx = widgetLeftPx,
+                    frameTopPx = widgetTopPx,
+                    frameWidthPx = widgetWidthPx,
+                    frameHeightPx = widgetHeightPx,
+                    onFrameResizeStart = { _, handle -> onWidgetResizeStart(handle) },
+                    onFrameResizeDrag = { _, handle, delta -> onWidgetResizeDrag(handle, delta) },
+                    onFrameResizeEnd = onWidgetResizeEnd,
+                )
+                SelectionDeleteButton(
+                    onClick = onWidgetDeleteTap,
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = (center.x - with(density) { 18.dp.toPx() }).roundToInt(),
+                                y = (widgetTopPx - with(density) { 20.dp.toPx() }).roundToInt(),
+                            )
+                        }
+                        .zIndex(0.84f),
+                )
+            }
+        }
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -702,6 +883,26 @@ fun CanvasEditLayer(
             }
         }
     }
+}
+
+@Composable
+private fun rememberDigitalClockText(): String {
+    val formatter = remember {
+        DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+    }
+    val currentText by produceState(
+        initialValue = LocalTime.now().format(formatter),
+        key1 = formatter,
+    ) {
+        while (true) {
+            val now = LocalTime.now()
+            value = now.format(formatter)
+            val millisUntilNextMinute = ((60 - now.second).coerceAtLeast(1) * 1_000L) -
+                (now.nano / 1_000_000L)
+            delay(millisUntilNextMinute.coerceAtLeast(150L))
+        }
+    }
+    return currentText
 }
 
 @Composable
@@ -1389,3 +1590,5 @@ private const val STICKY_TEXT_FIT_MAX_STEPS = 22
 private const val SELECTION_HANDLE_DEFER_RADIUS_PX = 22f
 private val EDGE_AUTO_PAN_ZONE_DP = 72.dp
 private val EDGE_AUTO_PAN_MAX_STEP_DP = 16.dp
+private const val WIDGET_CENTER_DRAG_WIDTH_FACTOR = 0.46f
+private const val WIDGET_CENTER_DRAG_HEIGHT_FACTOR = 0.58f

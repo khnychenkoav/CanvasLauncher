@@ -11,6 +11,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasWidgetEntity
 
 @Dao
 interface CanvasEditDao {
@@ -24,6 +25,9 @@ interface CanvasEditDao {
     @Query("SELECT * FROM canvas_frame_objects_table")
     suspend fun getFrameObjects(): List<CanvasFrameObjectEntity>
 
+    @Query("SELECT * FROM canvas_widgets_table")
+    suspend fun getWidgets(): List<CanvasWidgetEntity>
+
     @Transaction
     @Query("SELECT * FROM canvas_strokes_table")
     suspend fun getStrokesWithPoints(): List<CanvasStrokeWithPointsEntity>
@@ -36,6 +40,9 @@ interface CanvasEditDao {
 
     @Upsert
     suspend fun upsertFrameObject(frameObject: CanvasFrameObjectEntity)
+
+    @Upsert
+    suspend fun upsertWidget(widget: CanvasWidgetEntity)
 
     @Upsert
     suspend fun upsertStroke(stroke: CanvasStrokeEntity)
@@ -58,6 +65,9 @@ interface CanvasEditDao {
     @Query("DELETE FROM canvas_frame_objects_table WHERE id = :id")
     suspend fun deleteFrameObjectById(id: String)
 
+    @Query("DELETE FROM canvas_widgets_table WHERE id = :id")
+    suspend fun deleteWidgetById(id: String)
+
     @Query("DELETE FROM canvas_strokes_table")
     suspend fun deleteAllStrokes()
 
@@ -69,6 +79,9 @@ interface CanvasEditDao {
 
     @Query("DELETE FROM canvas_frame_objects_table")
     suspend fun deleteAllFrameObjects()
+
+    @Query("DELETE FROM canvas_widgets_table")
+    suspend fun deleteAllWidgets()
 
     @Transaction
     suspend fun upsertStrokeWithPoints(
@@ -88,6 +101,6 @@ interface CanvasEditDao {
         deleteAllStickyNotes()
         deleteAllTextObjects()
         deleteAllFrameObjects()
+        deleteAllWidgets()
     }
 }
-

@@ -17,6 +17,8 @@ data class LauncherUiState(
     val selectionDraft: CanvasSelectionDraftUiState? = null,
     val selectionBounds: CanvasSelectionBoundsUiState? = null,
     val hasActiveSelection: Boolean = false,
+    val widgets: List<CanvasWidgetUiState> = emptyList(),
+    val selectedWidgetId: String? = null,
     val strokes: List<CanvasStrokeUiState> = emptyList(),
     val stickyNotes: List<CanvasStickyNoteUiState> = emptyList(),
     val textObjects: List<CanvasTextObjectUiState> = emptyList(),

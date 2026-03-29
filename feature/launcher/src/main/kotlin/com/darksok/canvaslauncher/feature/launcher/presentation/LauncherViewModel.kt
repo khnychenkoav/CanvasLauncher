@@ -13,6 +13,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasWidgetEntity
 import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.CanvasConstants
@@ -49,8 +50,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.android.awaitFrame
@@ -109,11 +112,13 @@ class LauncherViewModel @Inject constructor(
     private val frameObjects = MutableStateFlow<List<CanvasFrameObjectUiState>>(emptyList())
     private val frameDraft = MutableStateFlow<CanvasFrameDraftUiState?>(null)
     private val selectedFrameIdForResize = MutableStateFlow<String?>(null)
+    private val selectedWidgetIdForResize = MutableStateFlow<String?>(null)
     private val selectionDraft = MutableStateFlow<CanvasSelectionDraftUiState?>(null)
     private val selectedObjects = MutableStateFlow(CanvasSelectionUiState())
     private val selectionBounds = MutableStateFlow<CanvasSelectionBoundsUiState?>(null)
     private val stickyNotes = MutableStateFlow<List<CanvasStickyNoteUiState>>(emptyList())
     private val textObjects = MutableStateFlow<List<CanvasTextObjectUiState>>(emptyList())
+    private val widgets = MutableStateFlow<List<CanvasWidgetUiState>>(emptyList())
     private val completedStrokes = MutableStateFlow<List<CanvasStrokeUiState>>(emptyList())
     private val activeStroke = MutableStateFlow<CanvasStrokeUiState?>(null)
     private val snapGuides = MutableStateFlow<List<CanvasSnapGuideUiState>>(emptyList())
@@ -123,6 +128,7 @@ class LauncherViewModel @Inject constructor(
     private var nextCanvasObjectId: Long = 0L
     private var activeObjectDrag: CanvasObjectDragTarget? = null
     private var activeFrameResizeSession: FrameResizeSession? = null
+    private var activeWidgetResizeSession: WidgetResizeSession? = null
     private var activeSelectionResizeSession: SelectionResizeSession? = null
     private var transientIconSnapDragActive: Boolean = false
     private var cameraFlightJob: Job? = null
@@ -332,41 +338,51 @@ class LauncherViewModel @Inject constructor(
             frameObjects,
             frameDraft,
             selectedFrameIdForResize,
+            selectedWidgetIdForResize,
             selectionDraft,
-            selectionBounds,
-        ) { frames, currentFrameDraft, selectedFrameId, selectionDraftState, selectionBoundsState ->
+        ) { frames, currentFrameDraft, selectedFrameId, selectedWidgetId, selectionDraftState ->
             FrameDecorationsState(
                 frames = frames,
                 frameDraft = currentFrameDraft,
                 selectedFrameIdForResize = selectedFrameId,
+                selectedWidgetIdForResize = selectedWidgetId,
                 selectionDraft = selectionDraftState,
-                selectionBounds = selectionBoundsState,
             )
         },
+        selectionBounds,
         selectedObjects,
-    ) { frameDecorations, selectedItems ->
+    ) { frameDecorations, selectionBoundsState, selectedItems ->
         frameDecorations.copy(
+            selectionBounds = selectionBoundsState,
             hasActiveSelection = !selectedItems.isEmpty,
         )
     }
 
     private val canvasDecorationsState = combine(
-        frameDecorationsState,
-        stickyNotes,
-        textObjects,
-        visibleStrokes,
+        combine(
+            frameDecorationsState,
+            stickyNotes,
+            textObjects,
+            widgets,
+            visibleStrokes,
+        ) { frameDecorations, notes, texts, canvasWidgets, strokes ->
+            CanvasDecorationsState(
+                frames = frameDecorations.frames,
+                frameDraft = frameDecorations.frameDraft,
+                selectedFrameIdForResize = frameDecorations.selectedFrameIdForResize,
+                selectedWidgetIdForResize = frameDecorations.selectedWidgetIdForResize,
+                selectionDraft = frameDecorations.selectionDraft,
+                selectionBounds = frameDecorations.selectionBounds,
+                hasActiveSelection = frameDecorations.hasActiveSelection,
+                notes = notes,
+                texts = texts,
+                widgets = canvasWidgets,
+                strokes = strokes,
+            )
+        },
         snapGuides,
-    ) { frameDecorations, notes, texts, strokes, guides ->
-        CanvasDecorationsState(
-            frames = frameDecorations.frames,
-            frameDraft = frameDecorations.frameDraft,
-            selectedFrameIdForResize = frameDecorations.selectedFrameIdForResize,
-            selectionDraft = frameDecorations.selectionDraft,
-            selectionBounds = frameDecorations.selectionBounds,
-            hasActiveSelection = frameDecorations.hasActiveSelection,
-            notes = notes,
-            texts = texts,
-            strokes = strokes,
+    ) { decorations, guides ->
+        decorations.copy(
             guides = guides,
         )
     }
@@ -422,6 +438,8 @@ class LauncherViewModel @Inject constructor(
             selectionDraft = decorations.selectionDraft,
             selectionBounds = decorations.selectionBounds,
             hasActiveSelection = decorations.hasActiveSelection,
+            widgets = decorations.widgets,
+            selectedWidgetId = decorations.selectedWidgetIdForResize,
             strokes = decorations.strokes,
             stickyNotes = decorations.notes,
             textObjects = decorations.texts,
@@ -469,9 +487,9 @@ class LauncherViewModel @Inject constructor(
 
     fun onHostResumed() {
         viewModelScope.launch(dispatchersProvider.io) {
-            runCatching { refreshPersistedFrames() }
+            runCatching { refreshPersistedDecorations() }
                 .onFailure { throwable ->
-                    Log.w(TAG, "Failed to refresh persisted frames on resume", throwable)
+                    Log.w(TAG, "Failed to refresh persisted decorations on resume", throwable)
                 }
         }
     }
@@ -487,7 +505,7 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppClick(packageName: String) {
-        if (activeTool.value == LauncherToolId.Edit) return
+        if (activeTool.value == LauncherToolId.Edit || activeTool.value == LauncherToolId.Widgets) return
         if (dragDropController.dragState.value != null) return
         clearSpotlight()
         viewModelScope.launch {
@@ -499,6 +517,7 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppDragStart(packageName: String) {
+        if (activeTool.value == LauncherToolId.Widgets) return
         clearSpotlight()
         cancelCameraFlightAnimation()
         val app = appsState.value.firstOrNull { it.packageName == packageName } ?: return
@@ -511,6 +530,7 @@ class LauncherViewModel @Inject constructor(
         packageName: String,
         delta: ScreenPoint,
     ) {
+        if (activeTool.value == LauncherToolId.Widgets) return
         val drag = dragDropController.dragState.value ?: return
         if (drag.packageName != packageName) return
         val currentScale = viewportController.cameraState.value.scale
@@ -532,6 +552,10 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppDragEnd(packageName: String) {
+        if (activeTool.value == LauncherToolId.Widgets) {
+            dragDropController.cancelDrag()
+            return
+        }
         val final = dragDropController.endDrag() ?: return
         if (final.packageName != packageName) {
             dragDropController.finishDrag()
@@ -558,6 +582,10 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppDragCancel() {
+        if (activeTool.value == LauncherToolId.Widgets) {
+            dragDropController.cancelDrag()
+            return
+        }
         dragDropController.cancelDrag()
         snapGuides.value = emptyList()
         transientIconSnapDragActive = false
@@ -575,12 +603,17 @@ class LauncherViewModel @Inject constructor(
             LauncherToolId.Search -> activateSearchTool()
             LauncherToolId.AppsList -> activateAppsListTool()
             LauncherToolId.Edit -> activateEditTool()
+            LauncherToolId.Widgets -> activateWidgetsTool()
             LauncherToolId.Settings -> isToolsExpanded.value = false
         }
     }
 
     fun onEditClose() {
         closeEditTool()
+    }
+
+    fun onWidgetsClose() {
+        closeWidgetsTool()
     }
 
     fun onEditToolSelected(tool: CanvasEditToolId) {
@@ -983,7 +1016,7 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditAutoPanDelta(delta: ScreenPoint) {
-        if (activeTool.value != LauncherToolId.Edit) return
+        if (activeTool.value != LauncherToolId.Edit && activeTool.value != LauncherToolId.Widgets) return
         if (delta.x == 0f && delta.y == 0f) return
         val camera = viewportController.cameraState.value
         gestureHandler.onTransform(
@@ -1221,12 +1254,18 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditObjectDragStart(target: CanvasObjectDragTarget) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val isEditMove = activeTool.value == LauncherToolId.Edit && editSelectedTool.value == CanvasEditToolId.Move
+        val isWidgetMove = activeTool.value == LauncherToolId.Widgets && target is CanvasObjectDragTarget.Widget
+        if (!isEditMove && !isWidgetMove) return
         cancelCameraFlightAnimation()
         activeObjectDrag = target
         activeFrameResizeSession = null
+        activeWidgetResizeSession = null
         if (target is CanvasObjectDragTarget.Frame) {
             selectedFrameIdForResize.value = target.id
+        }
+        if (target is CanvasObjectDragTarget.Widget) {
+            selectedWidgetIdForResize.value = target.id
         }
         snapGuides.value = emptyList()
     }
@@ -1235,7 +1274,9 @@ class LauncherViewModel @Inject constructor(
         target: CanvasObjectDragTarget,
         delta: ScreenPoint,
     ) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val isEditMove = activeTool.value == LauncherToolId.Edit && editSelectedTool.value == CanvasEditToolId.Move
+        val isWidgetMove = activeTool.value == LauncherToolId.Widgets && target is CanvasObjectDragTarget.Widget
+        if (!isEditMove && !isWidgetMove) return
         if (activeObjectDrag != target) return
         val scale = viewportController.cameraState.value.scale
         if (scale == 0f) return
@@ -1304,6 +1345,28 @@ class LauncherViewModel @Inject constructor(
                 textObjects.update { texts ->
                     texts.map { current ->
                         if (current.id == target.id) current.copy(position = snap.position) else current
+                    }
+                }
+                snapGuides.value = snap.guides
+            }
+
+            is CanvasObjectDragTarget.Widget -> {
+                val widget = widgets.value.firstOrNull { it.id == target.id } ?: return
+                val candidate = WorldPoint(
+                    x = widget.center.x + worldDeltaX,
+                    y = widget.center.y + worldDeltaY,
+                )
+                val snap = SnapAssistEngine.snap(
+                    candidate = candidate,
+                    anchors = buildSnapAnchors(excludedObject = target),
+                    cameraScale = scale,
+                    previousGuides = snapGuides.value,
+                    baseThresholdPx = OBJECT_SNAP_THRESHOLD_SCREEN_PX,
+                    axisInfluencePx = OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX,
+                )
+                widgets.update { canvasWidgets ->
+                    canvasWidgets.map { current ->
+                        if (current.id == target.id) current.copy(center = snap.position) else current
                     }
                 }
                 snapGuides.value = snap.guides
@@ -1500,16 +1563,19 @@ class LauncherViewModel @Inject constructor(
         frameObjects.value = emptyList()
         frameDraft.value = null
         selectedFrameIdForResize.value = null
+        selectedWidgetIdForResize.value = null
         selectionDraft.value = null
         selectedObjects.value = CanvasSelectionUiState()
         selectionBounds.value = null
         stickyNotes.value = emptyList()
         textObjects.value = emptyList()
+        widgets.value = emptyList()
         completedStrokes.value = emptyList()
         activeStroke.value = null
         snapGuides.value = emptyList()
         activeObjectDrag = null
         activeFrameResizeSession = null
+        activeWidgetResizeSession = null
         activeSelectionResizeSession = null
         editInlineEditor.value = CanvasInlineEditorUiState()
         viewModelScope.launch(dispatchersProvider.io) {
@@ -1590,6 +1656,8 @@ class LauncherViewModel @Inject constructor(
             closeAppsListTool()
         } else if (activeTool.value == LauncherToolId.Edit) {
             closeEditTool()
+        } else if (activeTool.value == LauncherToolId.Widgets) {
+            closeWidgetsTool()
         }
         cameraSnapshotBeforeSearch = viewportController.cameraState.value
         activeTool.value = LauncherToolId.Search
@@ -1606,6 +1674,8 @@ class LauncherViewModel @Inject constructor(
             closeSearchTool(restoreViewport = true)
         } else if (activeTool.value == LauncherToolId.Edit) {
             closeEditTool()
+        } else if (activeTool.value == LauncherToolId.Widgets) {
+            closeWidgetsTool()
         }
         activeTool.value = LauncherToolId.AppsList
         isToolsExpanded.value = false
@@ -1620,6 +1690,7 @@ class LauncherViewModel @Inject constructor(
         when (activeTool.value) {
             LauncherToolId.Search -> closeSearchTool(restoreViewport = true)
             LauncherToolId.AppsList -> closeAppsListTool()
+            LauncherToolId.Widgets -> closeWidgetsTool()
             else -> Unit
         }
         activeTool.value = LauncherToolId.Edit
@@ -1629,6 +1700,34 @@ class LauncherViewModel @Inject constructor(
         snapGuides.value = emptyList()
         activeObjectDrag = null
         activeFrameResizeSession = null
+        activeWidgetResizeSession = null
+        activeSelectionResizeSession = null
+        selectedFrameIdForResize.value = null
+        selectedWidgetIdForResize.value = null
+        frameDraft.value = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
+        transientIconSnapDragActive = false
+    }
+
+    private fun activateWidgetsTool() {
+        if (activeTool.value == LauncherToolId.Widgets) return
+        cancelCameraFlightAnimation()
+        when (activeTool.value) {
+            LauncherToolId.Search -> closeSearchTool(restoreViewport = true)
+            LauncherToolId.AppsList -> closeAppsListTool()
+            LauncherToolId.Edit -> closeEditTool()
+            else -> Unit
+        }
+        activeTool.value = LauncherToolId.Widgets
+        isToolsExpanded.value = false
+        showSearchLaunchAction.value = false
+        clearSpotlight()
+        snapGuides.value = emptyList()
+        activeObjectDrag = null
+        activeFrameResizeSession = null
+        activeWidgetResizeSession = null
         activeSelectionResizeSession = null
         selectedFrameIdForResize.value = null
         frameDraft.value = null
@@ -1678,12 +1777,27 @@ class LauncherViewModel @Inject constructor(
         snapGuides.value = emptyList()
         activeObjectDrag = null
         activeFrameResizeSession = null
+        activeWidgetResizeSession = null
         activeSelectionResizeSession = null
         selectedFrameIdForResize.value = null
+        selectedWidgetIdForResize.value = null
         frameDraft.value = null
         selectionDraft.value = null
         selectedObjects.value = CanvasSelectionUiState()
         selectionBounds.value = null
+        transientIconSnapDragActive = false
+    }
+
+    private fun closeWidgetsTool() {
+        if (activeTool.value == LauncherToolId.Widgets) {
+            activeTool.value = null
+        }
+        cancelCameraFlightAnimation()
+        isToolsExpanded.value = false
+        snapGuides.value = emptyList()
+        activeObjectDrag = null
+        activeWidgetResizeSession = null
+        selectedWidgetIdForResize.value = null
         transientIconSnapDragActive = false
     }
 
@@ -1758,6 +1872,91 @@ class LauncherViewModel @Inject constructor(
                 isDraft = isDraft,
             )
         }
+    }
+
+    private fun findFreeWidgetCenter(
+        widthWorld: Float,
+        heightWorld: Float,
+    ): WorldPoint {
+        val start = viewportController.cameraState.value.worldCenter
+        val searchStep = (max(widthWorld, heightWorld) * 0.9f).coerceAtLeast(120f)
+        val angleSteps = 24
+        val maxRings = 140
+
+        fun centerBounds(center: WorldPoint): WorldBounds {
+            val halfWidth = widthWorld / 2f
+            val halfHeight = heightWorld / 2f
+            return WorldBounds(
+                left = center.x - halfWidth,
+                top = center.y - halfHeight,
+                right = center.x + halfWidth,
+                bottom = center.y + halfHeight,
+            )
+        }
+
+        if (isWidgetBoundsFree(centerBounds(start))) {
+            return start
+        }
+
+        for (ring in 1..maxRings) {
+            val radius = ring * searchStep
+            val shift = if (ring % 2 == 0) 0.0 else Math.PI / angleSteps
+            repeat(angleSteps) { index ->
+                val angle = (2.0 * Math.PI * index / angleSteps) + shift
+                val candidate = WorldPoint(
+                    x = start.x + (cos(angle) * radius).toFloat(),
+                    y = start.y + (sin(angle) * radius).toFloat(),
+                )
+                if (isWidgetBoundsFree(centerBounds(candidate))) {
+                    return candidate
+                }
+            }
+        }
+
+        var fallback = WorldPoint(
+            x = start.x + searchStep * (maxRings + 2),
+            y = start.y + searchStep * (maxRings + 2),
+        )
+        while (!isWidgetBoundsFree(centerBounds(fallback))) {
+            fallback = WorldPoint(
+                x = fallback.x + searchStep,
+                y = fallback.y + searchStep,
+            )
+        }
+        return fallback
+    }
+
+    private fun isWidgetBoundsFree(
+        candidate: WorldBounds,
+        excludedWidgetId: String? = null,
+    ): Boolean {
+        val scale = viewportController.cameraState.value.scale
+        val iconHalfSizeWorld = iconWorldSizeForScale(scale) / 2f
+        val iconIntersects = currentAppPositionsByPackage()
+            .values
+            .any { position ->
+                val iconBounds = WorldBounds(
+                    left = position.x - iconHalfSizeWorld,
+                    top = position.y - iconHalfSizeWorld,
+                    right = position.x + iconHalfSizeWorld,
+                    bottom = position.y + iconHalfSizeWorld,
+                )
+                candidate.intersects(iconBounds)
+            }
+        if (iconIntersects) return false
+
+        if (frameObjects.value.any { frame -> candidate.intersects(frame.worldBounds()) }) return false
+        if (stickyNotes.value.any { note -> candidate.intersects(note.worldBounds()) }) return false
+        if (textObjects.value.any { text -> candidate.intersects(text.estimatedWorldBounds()) }) return false
+        if (completedStrokes.value.any { stroke ->
+                stroke.worldBoundsWithStrokeWidth()?.let { bounds -> candidate.intersects(bounds) } == true
+            }
+        ) return false
+        if (widgets.value.any { widget ->
+                widget.id != excludedWidgetId && candidate.intersects(widget.worldBounds())
+            }
+        ) return false
+        return true
     }
 
     private fun animateCameraFlight(targetCamera: CameraState) {
@@ -1848,6 +2047,7 @@ class LauncherViewModel @Inject constructor(
         val excludedStickyId = (excludedObject as? CanvasObjectDragTarget.Sticky)?.id
         val excludedTextId = (excludedObject as? CanvasObjectDragTarget.Text)?.id
         val excludedFrameId = (excludedObject as? CanvasObjectDragTarget.Frame)?.id
+        val excludedWidgetId = (excludedObject as? CanvasObjectDragTarget.Widget)?.id
 
         val stickyAnchors = stickyNotes.value
             .asSequence()
@@ -1864,12 +2064,18 @@ class LauncherViewModel @Inject constructor(
             .filterNot { it.id == excludedFrameId }
             .map { it.center }
             .toList()
+        val widgetAnchors = widgets.value
+            .asSequence()
+            .filterNot { it.id == excludedWidgetId }
+            .map { it.center }
+            .toList()
 
-        return buildList(iconAnchors.size + stickyAnchors.size + textAnchors.size + frameAnchors.size) {
+        return buildList(iconAnchors.size + stickyAnchors.size + textAnchors.size + frameAnchors.size + widgetAnchors.size) {
             addAll(iconAnchors)
             addAll(stickyAnchors)
             addAll(textAnchors)
             addAll(frameAnchors)
+            addAll(widgetAnchors)
         }
     }
 
@@ -2038,6 +2244,95 @@ class LauncherViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun onWidgetCatalogItemSelected(type: CanvasWidgetType) {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        val widgetId = nextCanvasId(prefix = "widget")
+        val widthWorld = CanvasEditDefaults.DEFAULT_WIDGET_WIDTH_WORLD
+        val heightWorld = CanvasEditDefaults.DEFAULT_WIDGET_HEIGHT_WORLD
+        val center = findFreeWidgetCenter(widthWorld = widthWorld, heightWorld = heightWorld)
+        val widget = CanvasWidgetUiState(
+            id = widgetId,
+            type = type,
+            center = center,
+            widthWorld = widthWorld,
+            heightWorld = heightWorld,
+        )
+        widgets.update { current -> current + widget }
+        selectedWidgetIdForResize.value = widgetId
+        activeWidgetResizeSession = null
+        persistWidget(widget)
+    }
+
+    fun onWidgetTap(widgetId: String) {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        if (widgets.value.none { widget -> widget.id == widgetId }) return
+        selectedWidgetIdForResize.value = widgetId
+    }
+
+    fun onWidgetBackgroundTap() {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        selectedWidgetIdForResize.value = null
+        activeWidgetResizeSession = null
+    }
+
+    fun onWidgetDeleteSelected() {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        val widgetId = selectedWidgetIdForResize.value ?: return
+        deleteWidget(widgetId)
+    }
+
+    fun onWidgetResizeStart(handle: CanvasFrameResizeHandle) {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        val widgetId = selectedWidgetIdForResize.value ?: return
+        if (widgets.value.none { item -> item.id == widgetId }) return
+        activeWidgetResizeSession = WidgetResizeSession(
+            widgetId = widgetId,
+            handle = handle,
+        )
+        selectedWidgetIdForResize.value = widgetId
+        if (activeObjectDrag == CanvasObjectDragTarget.Widget(widgetId)) {
+            activeObjectDrag = null
+        }
+    }
+
+    fun onWidgetResizeDrag(
+        handle: CanvasFrameResizeHandle,
+        delta: ScreenPoint,
+    ) {
+        if (activeTool.value != LauncherToolId.Widgets) return
+        val session = activeWidgetResizeSession ?: return
+        if (session.handle != handle) return
+        val scale = viewportController.cameraState.value.scale
+        if (scale <= 0f) return
+        val widget = widgets.value.firstOrNull { item -> item.id == session.widgetId } ?: return
+        val resized = widget.resizeByHandleDrag(
+            handle = handle,
+            deltaXWorld = delta.x / scale,
+            deltaYWorld = delta.y / scale,
+            minWidthWorld = CanvasEditDefaults.WIDGET_MIN_WIDTH_WORLD,
+            minHeightWorld = CanvasEditDefaults.WIDGET_MIN_HEIGHT_WORLD,
+        )
+        widgets.update { items ->
+            items.map { current ->
+                if (current.id == session.widgetId) {
+                    resized
+                } else {
+                    current
+                }
+            }
+        }
+    }
+
+    fun onWidgetResizeEnd() {
+        val session = activeWidgetResizeSession ?: return
+        val updated = widgets.value.firstOrNull { widget -> widget.id == session.widgetId } ?: run {
+            activeWidgetResizeSession = null
+            return
+        }
+        persistWidget(updated)
+        activeWidgetResizeSession = null
     }
 
     private fun persistSelectionTransform(includeIcons: Boolean) {
@@ -2250,6 +2545,17 @@ class LauncherViewModel @Inject constructor(
                 colorArgb = entity.colorArgb,
             )
         }
+        val persistedWidgets = canvasEditDao.getWidgets().mapNotNull { entity ->
+            val type = entity.type.toCanvasWidgetTypeOrNull() ?: return@mapNotNull null
+            CanvasWidgetUiState(
+                id = entity.id,
+                type = type,
+                center = WorldPoint(entity.centerX, entity.centerY),
+                widthWorld = entity.widthWorld,
+                heightWorld = entity.heightWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
         val persistedStrokes = canvasEditDao.getStrokesWithPoints().map { entity ->
             entity.toUiState()
         }
@@ -2257,9 +2563,12 @@ class LauncherViewModel @Inject constructor(
         stickyNotes.value = persistedStickyNotes
         textObjects.value = persistedTextObjects
         frameObjects.value = persistedFrameObjects
+        widgets.value = persistedWidgets
         frameDraft.value = null
         selectedFrameIdForResize.value = null
+        selectedWidgetIdForResize.value = null
         activeFrameResizeSession = null
+        activeWidgetResizeSession = null
         activeSelectionResizeSession = null
         selectionDraft.value = null
         selectedObjects.value = CanvasSelectionUiState()
@@ -2272,6 +2581,7 @@ class LauncherViewModel @Inject constructor(
                 persistedStickyNotes.map { it.id },
                 persistedTextObjects.map { it.id },
                 persistedFrameObjects.map { it.id },
+                persistedWidgets.map { it.id },
                 persistedStrokes.map { it.id },
             )
                 .flatten()
@@ -2282,7 +2592,7 @@ class LauncherViewModel @Inject constructor(
         )
     }
 
-    private suspend fun refreshPersistedFrames() {
+    private suspend fun refreshPersistedDecorations() {
         val persistedFrameObjects = canvasEditDao.getFrameObjects().map { entity ->
             CanvasFrameObjectUiState(
                 id = entity.id,
@@ -2293,13 +2603,32 @@ class LauncherViewModel @Inject constructor(
                 colorArgb = entity.colorArgb,
             )
         }
+        val persistedWidgets = canvasEditDao.getWidgets().mapNotNull { entity ->
+            val type = entity.type.toCanvasWidgetTypeOrNull() ?: return@mapNotNull null
+            CanvasWidgetUiState(
+                id = entity.id,
+                type = type,
+                center = WorldPoint(entity.centerX, entity.centerY),
+                widthWorld = entity.widthWorld,
+                heightWorld = entity.heightWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
         frameObjects.value = persistedFrameObjects
+        widgets.value = persistedWidgets
         val frameIds = persistedFrameObjects.mapTo(HashSet()) { frame -> frame.id }
         selectedFrameIdForResize.value = selectedFrameIdForResize.value?.takeIf { frameId ->
             frameId in frameIds
         }
         if (activeFrameResizeSession?.frameId !in frameIds) {
             activeFrameResizeSession = null
+        }
+        val widgetIds = persistedWidgets.mapTo(HashSet()) { widget -> widget.id }
+        selectedWidgetIdForResize.value = selectedWidgetIdForResize.value?.takeIf { widgetId ->
+            widgetId in widgetIds
+        }
+        if (activeWidgetResizeSession?.widgetId !in widgetIds) {
+            activeWidgetResizeSession = null
         }
         pruneSelectionToExistingObjects()
     }
@@ -2316,6 +2645,10 @@ class LauncherViewModel @Inject constructor(
 
             is CanvasObjectDragTarget.Frame -> {
                 frameObjects.value.firstOrNull { it.id == target.id }?.let(::persistFrameObject)
+            }
+
+            is CanvasObjectDragTarget.Widget -> {
+                widgets.value.firstOrNull { it.id == target.id }?.let(::persistWidget)
             }
 
             null -> Unit
@@ -2405,6 +2738,26 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    private fun persistWidget(widget: CanvasWidgetUiState) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.upsertWidget(
+                    CanvasWidgetEntity(
+                        id = widget.id,
+                        type = widget.type.name,
+                        centerX = widget.center.x,
+                        centerY = widget.center.y,
+                        widthWorld = widget.widthWorld,
+                        heightWorld = widget.heightWorld,
+                        colorArgb = widget.colorArgb,
+                    ),
+                )
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist widget ${widget.id}", throwable)
+            }
+        }
+    }
+
     private fun deleteStickyNote(id: String) {
         stickyNotes.update { notes -> notes.filterNot { note -> note.id == id } }
         viewModelScope.launch(dispatchersProvider.io) {
@@ -2439,6 +2792,22 @@ class LauncherViewModel @Inject constructor(
             runCatching { canvasEditDao.deleteFrameObjectById(id) }
                 .onFailure { throwable ->
                     Log.w(TAG, "Failed to delete frame object $id", throwable)
+                }
+        }
+    }
+
+    private fun deleteWidget(id: String) {
+        widgets.update { current -> current.filterNot { widget -> widget.id == id } }
+        if (selectedWidgetIdForResize.value == id) {
+            selectedWidgetIdForResize.value = null
+        }
+        if (activeWidgetResizeSession?.widgetId == id) {
+            activeWidgetResizeSession = null
+        }
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { canvasEditDao.deleteWidgetById(id) }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to delete widget $id", throwable)
                 }
         }
     }
@@ -2663,6 +3032,7 @@ sealed interface CanvasObjectDragTarget {
     data class Sticky(val id: String) : CanvasObjectDragTarget
     data class Text(val id: String) : CanvasObjectDragTarget
     data class Frame(val id: String) : CanvasObjectDragTarget
+    data class Widget(val id: String) : CanvasObjectDragTarget
 }
 
 private data class RenderState(
@@ -2699,6 +3069,7 @@ private data class FrameDecorationsState(
     val frames: List<CanvasFrameObjectUiState> = emptyList(),
     val frameDraft: CanvasFrameDraftUiState? = null,
     val selectedFrameIdForResize: String? = null,
+    val selectedWidgetIdForResize: String? = null,
     val selectionDraft: CanvasSelectionDraftUiState? = null,
     val selectionBounds: CanvasSelectionBoundsUiState? = null,
     val hasActiveSelection: Boolean = false,
@@ -2708,11 +3079,13 @@ private data class CanvasDecorationsState(
     val frames: List<CanvasFrameObjectUiState> = emptyList(),
     val frameDraft: CanvasFrameDraftUiState? = null,
     val selectedFrameIdForResize: String? = null,
+    val selectedWidgetIdForResize: String? = null,
     val selectionDraft: CanvasSelectionDraftUiState? = null,
     val selectionBounds: CanvasSelectionBoundsUiState? = null,
     val hasActiveSelection: Boolean = false,
     val notes: List<CanvasStickyNoteUiState> = emptyList(),
     val texts: List<CanvasTextObjectUiState> = emptyList(),
+    val widgets: List<CanvasWidgetUiState> = emptyList(),
     val strokes: List<CanvasStrokeUiState> = emptyList(),
     val guides: List<CanvasSnapGuideUiState> = emptyList(),
 )
@@ -2724,6 +3097,11 @@ private data class AppsListEntry(
 
 private data class FrameResizeSession(
     val frameId: String,
+    val handle: CanvasFrameResizeHandle,
+)
+
+private data class WidgetResizeSession(
+    val widgetId: String,
     val handle: CanvasFrameResizeHandle,
 )
 
@@ -2818,6 +3196,86 @@ private fun CanvasFrameObjectUiState.resizeByHandleDrag(
     )
 }
 
+private fun CanvasWidgetUiState.resizeByHandleDrag(
+    handle: CanvasFrameResizeHandle,
+    deltaXWorld: Float,
+    deltaYWorld: Float,
+    minWidthWorld: Float,
+    minHeightWorld: Float,
+): CanvasWidgetUiState {
+    var nextWidth = widthWorld
+    var nextHeight = heightWorld
+    var centerShiftX = 0f
+    var centerShiftY = 0f
+
+    fun applyLeftEdge(delta: Float) {
+        val rawWidth = nextWidth - delta
+        val clamped = rawWidth.coerceAtLeast(minWidthWorld)
+        val appliedEdgeDelta = nextWidth - clamped
+        nextWidth = clamped
+        centerShiftX += appliedEdgeDelta / 2f
+    }
+
+    fun applyRightEdge(delta: Float) {
+        val rawWidth = nextWidth + delta
+        val clamped = rawWidth.coerceAtLeast(minWidthWorld)
+        val appliedEdgeDelta = clamped - nextWidth
+        nextWidth = clamped
+        centerShiftX += appliedEdgeDelta / 2f
+    }
+
+    fun applyTopEdge(delta: Float) {
+        val rawHeight = nextHeight - delta
+        val clamped = rawHeight.coerceAtLeast(minHeightWorld)
+        val appliedEdgeDelta = nextHeight - clamped
+        nextHeight = clamped
+        centerShiftY += appliedEdgeDelta / 2f
+    }
+
+    fun applyBottomEdge(delta: Float) {
+        val rawHeight = nextHeight + delta
+        val clamped = rawHeight.coerceAtLeast(minHeightWorld)
+        val appliedEdgeDelta = clamped - nextHeight
+        nextHeight = clamped
+        centerShiftY += appliedEdgeDelta / 2f
+    }
+
+    when (handle) {
+        CanvasFrameResizeHandle.Left -> applyLeftEdge(deltaXWorld)
+        CanvasFrameResizeHandle.TopLeft -> {
+            applyLeftEdge(deltaXWorld)
+            applyTopEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Top -> applyTopEdge(deltaYWorld)
+        CanvasFrameResizeHandle.TopRight -> {
+            applyRightEdge(deltaXWorld)
+            applyTopEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Right -> applyRightEdge(deltaXWorld)
+        CanvasFrameResizeHandle.BottomRight -> {
+            applyRightEdge(deltaXWorld)
+            applyBottomEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Bottom -> applyBottomEdge(deltaYWorld)
+        CanvasFrameResizeHandle.BottomLeft -> {
+            applyLeftEdge(deltaXWorld)
+            applyBottomEdge(deltaYWorld)
+        }
+    }
+
+    return copy(
+        center = WorldPoint(
+            x = center.x + centerShiftX,
+            y = center.y + centerShiftY,
+        ),
+        widthWorld = nextWidth,
+        heightWorld = nextHeight,
+    )
+}
+
 private data class WorldBounds(
     val left: Float,
     val top: Float,
@@ -2838,6 +3296,13 @@ private data class WorldBounds(
             other.right <= right &&
             other.top >= top &&
             other.bottom <= bottom
+    }
+
+    fun intersects(other: WorldBounds): Boolean {
+        return left < other.right &&
+            right > other.left &&
+            top < other.bottom &&
+            bottom > other.top
     }
 
     fun offset(deltaX: Float, deltaY: Float): WorldBounds {
@@ -2945,6 +3410,24 @@ private fun CanvasFrameObjectUiState.worldBounds(): WorldBounds {
     )
 }
 
+private fun CanvasWidgetUiState.worldBounds(): WorldBounds {
+    return WorldBounds(
+        left = center.x - widthWorld / 2f,
+        top = center.y - heightWorld / 2f,
+        right = center.x + widthWorld / 2f,
+        bottom = center.y + heightWorld / 2f,
+    )
+}
+
+private fun CanvasStickyNoteUiState.worldBounds(): WorldBounds {
+    return WorldBounds(
+        left = center.x - sizeWorld / 2f,
+        top = center.y - sizeWorld / 2f,
+        right = center.x + sizeWorld / 2f,
+        bottom = center.y + sizeWorld / 2f,
+    )
+}
+
 private fun CanvasTextObjectUiState.estimatedWorldBounds(): WorldBounds {
     val safeText = text.ifBlank { "A" }
     val lines = safeText.split('\n').ifEmpty { listOf(safeText) }
@@ -3015,3 +3498,7 @@ private fun easeInOutCubic(t: Float): Float {
 private const val TEXT_ESTIMATED_WIDTH_FACTOR = 0.56f
 private const val TEXT_ESTIMATED_MIN_WIDTH_MULTIPLIER = 1.7f
 private const val TEXT_ESTIMATED_HEIGHT_FACTOR = 1.22f
+
+private fun String.toCanvasWidgetTypeOrNull(): CanvasWidgetType? {
+    return runCatching { CanvasWidgetType.valueOf(this) }.getOrNull()
+}

@@ -1,0 +1,363 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "7807d6b020076818d5721620c187a019",
+    "entities": [
+      {
+        "tableName": "apps_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`packageName` TEXT NOT NULL, `label` TEXT NOT NULL, `x` REAL NOT NULL, `y` REAL NOT NULL, PRIMARY KEY(`packageName`))",
+        "fields": [
+          {
+            "fieldPath": "packageName",
+            "columnName": "packageName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "x",
+            "columnName": "x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "y",
+            "columnName": "y",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "packageName"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_sticky_notes_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `text` TEXT NOT NULL, `centerX` REAL NOT NULL, `centerY` REAL NOT NULL, `sizeWorld` REAL NOT NULL, `textSizeWorld` REAL NOT NULL, `colorArgb` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerX",
+            "columnName": "centerX",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerY",
+            "columnName": "centerY",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeWorld",
+            "columnName": "sizeWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textSizeWorld",
+            "columnName": "textSizeWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_text_objects_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `text` TEXT NOT NULL, `x` REAL NOT NULL, `y` REAL NOT NULL, `textSizeWorld` REAL NOT NULL, `colorArgb` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "x",
+            "columnName": "x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "y",
+            "columnName": "y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textSizeWorld",
+            "columnName": "textSizeWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_frame_objects_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `centerX` REAL NOT NULL, `centerY` REAL NOT NULL, `widthWorld` REAL NOT NULL, `heightWorld` REAL NOT NULL, `colorArgb` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerX",
+            "columnName": "centerX",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerY",
+            "columnName": "centerY",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "widthWorld",
+            "columnName": "widthWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "heightWorld",
+            "columnName": "heightWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_widgets_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `type` TEXT NOT NULL, `centerX` REAL NOT NULL, `centerY` REAL NOT NULL, `widthWorld` REAL NOT NULL, `heightWorld` REAL NOT NULL, `colorArgb` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerX",
+            "columnName": "centerX",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerY",
+            "columnName": "centerY",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "widthWorld",
+            "columnName": "widthWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "heightWorld",
+            "columnName": "heightWorld",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_strokes_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `colorArgb` INTEGER NOT NULL, `widthWorld` REAL NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorArgb",
+            "columnName": "colorArgb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "widthWorld",
+            "columnName": "widthWorld",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "canvas_stroke_points_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`strokeId` TEXT NOT NULL, `pointIndex` INTEGER NOT NULL, `x` REAL NOT NULL, `y` REAL NOT NULL, PRIMARY KEY(`strokeId`, `pointIndex`), FOREIGN KEY(`strokeId`) REFERENCES `canvas_strokes_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "strokeId",
+            "columnName": "strokeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pointIndex",
+            "columnName": "pointIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "x",
+            "columnName": "x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "y",
+            "columnName": "y",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "strokeId",
+            "pointIndex"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_canvas_stroke_points_table_strokeId",
+            "unique": false,
+            "columnNames": [
+              "strokeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_canvas_stroke_points_table_strokeId` ON `${TABLE_NAME}` (`strokeId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "canvas_strokes_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "strokeId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7807d6b020076818d5721620c187a019')"
+    ]
+  }
+}

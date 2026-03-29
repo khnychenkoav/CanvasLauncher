@@ -29,4 +29,5 @@
     <string name="canvas_sticky_fallback_text">Note</string>
     <string name="canvas_text_fallback_text">Text</string>
     <string name="canvas_selection_delete_content_description">Delete selected elements</string>
+    <string name="widgets_title">Widgets</string>
 </resources>
