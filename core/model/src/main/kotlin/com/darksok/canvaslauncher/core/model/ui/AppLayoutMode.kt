@@ -6,4 +6,5 @@ enum class AppLayoutMode {
     CIRCLE,
     OVAL,
     SMART_AUTO,
+    ICON_COLOR,
 }

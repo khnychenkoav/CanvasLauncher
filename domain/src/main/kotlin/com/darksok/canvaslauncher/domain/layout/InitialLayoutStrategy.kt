@@ -10,6 +10,6 @@ interface InitialLayoutStrategy {
         existingApps: List<CanvasApp>,
         newApps: List<InstalledApp>,
         center: WorldPoint = WorldPoint(0f, 0f),
-        mode: AppLayoutMode = AppLayoutMode.SPIRAL,
+        mode: AppLayoutMode = AppLayoutMode.SMART_AUTO,
     ): List<CanvasApp>
 }

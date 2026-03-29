@@ -1,198 +1,227 @@
-# Canvas Launcher (MVP)
+<p align="center">
+  <img src="docs/readme/logo.png" alt="Canvas Launcher" width="220" />
+</p>
 
-`Canvas Launcher` is an Android Home Launcher MVP that replaces fixed home-screen pages with an infinite 2D canvas.
+<h1 align="center">Canvas Launcher</h1>
 
-## What MVP does
+<p align="center">
+  <strong>Infinite 2D home screen launcher for Android.</strong><br/>
+  Pan. Zoom. Organize apps as a world, not a grid.
+</p>
 
-- Registers as a launcher (`HOME` + `DEFAULT`).
-- Adds app icon entry (`MAIN` + `LAUNCHER`) that opens onboarding/default-setup flow.
-- Onboarding screen:
-  - animated intro,
-  - button to request/set default home app,
-  - entry point to Settings screen.
-- On startup:
-  - reads launchable apps from `PackageManager`,
-  - reconciles them with `Room`,
-  - places missing apps by pluggable initial layout strategy (`SpiralLayoutStrategy`).
-- Infinite canvas interactions:
-  - one-finger pan,
-  - two-finger pinch-to-zoom,
-  - constrained zoom (`MIN_SCALE = 0.3`, `MAX_SCALE = 2.0`).
-- App icon interactions:
-  - tap to launch app,
-  - long press + drag to move icon in world-space coordinates,
-  - persist position in DB only on drag end.
-  - multi-touch/pan arbitration suppresses accidental app taps during transform.
-- Runtime package updates:
-  - `PACKAGE_ADDED`, `PACKAGE_REMOVED`, `PACKAGE_CHANGED` via `BroadcastReceiver`,
-  - added app appears at current viewport center,
-  - removed app disappears,
-  - changed app refreshes label and icon cache.
-- Performance basics:
-  - viewport culling of non-visible items,
-  - in-memory LRU bitmap icon cache,
-  - no `PackageManager` icon fetches in pan/zoom loop,
-  - orientation dot background and zoom-triggered minimap overlay.
+<p align="center">
+  <a href="https://github.com/khnychenkoav/CanvasLauncher/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/khnychenkoav/CanvasLauncher/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI" /></a>
+  <a href="https://github.com/khnychenkoav/CanvasLauncher/stargazers"><img src="https://img.shields.io/github/stars/khnychenkoav/CanvasLauncher?style=for-the-badge" alt="Stars" /></a>
+  <a href="https://github.com/khnychenkoav/CanvasLauncher/network/members"><img src="https://img.shields.io/github/forks/khnychenkoav/CanvasLauncher?style=for-the-badge" alt="Forks" /></a>
+  <a href="https://github.com/khnychenkoav/CanvasLauncher/issues"><img src="https://img.shields.io/github/issues/khnychenkoav/CanvasLauncher?style=for-the-badge" alt="Issues" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/khnychenkoav/CanvasLauncher?style=for-the-badge" alt="License" /></a>
+</p>
 
-## Modular architecture
+<p align="center">
+  <img src="https://img.shields.io/badge/Android-26%2B-3DDC84?logo=android&logoColor=white" alt="Android 26+" />
+  <img src="https://img.shields.io/badge/Target%20SDK-36-2E7D32" alt="Target SDK 36" />
+  <img src="https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin 2.0.21" />
+  <img src="https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
+  <img src="https://img.shields.io/badge/Architecture-Multi--Module-0A66C2" alt="Multi-module" />
+</p>
 
-### Modules
+## Why This Project Exists
+Most launchers force your phone into fixed pages and rigid icon grids.
 
-- `:app`
-  - Android entry point, `Application`, `MainActivity`, `DefaultActivity`, `SettingsActivity`, package receiver, launcher manifest declarations.
-- `:core:common`
-  - shared primitives (`AppResult`, `DispatchersProvider`).
-- `:core:model`
-  - immutable models for apps/canvas/camera.
-- `:core:ui`
-  - shared Compose theme.
-- `:core:settings`
-  - DataStore-backed theme preferences repository + DI bindings.
-- `:core:database`
-  - Room `Entity/Dao/Database`, DB DI module and migration registry.
-- `:core:packages`
-  - PackageManager data source, app launch service, icon LRU cache, package event bus.
-- `:core:performance`
-  - pure world/screen transforms and viewport culling engine.
-- `:domain`
-  - repository contracts, initial layout strategy abstraction, use cases.
-- `:feature:apps`
-  - `CanvasAppsStore` implementation over Room + DI bindings.
-- `:feature:canvas`
-  - canvas rendering UI and independent controllers for viewport/gesture/drag-drop.
-- `:feature:launcher`
-  - launcher screen, `LauncherViewModel`, UDF state orchestration and DI for presentation controllers.
+Canvas Launcher treats the home screen as a continuous coordinate space:
+- no page boundaries;
+- no hard grid lock;
+- no "next page" mental overhead.
 
-### Layering
+You navigate your apps like a map.
 
-- `presentation`: `feature:*`, `core:ui`.
-- `domain`: `:domain`.
-- `data`: `feature:apps`, `core:database`, `core:packages`.
-- `UI` never talks directly to `Room` or `PackageManager`.
+## Current State (What Is Actually Implemented)
+The repository already contains a working launcher with a substantial feature set.
 
-## Project tree (high-level)
+### Core launcher flow
+- default launcher onboarding flow (`DefaultActivity`) with role request and fallback to system home settings;
+- production launcher activity (`MainActivity`) registered as `HOME` (`singleTask`, custom task affinity);
+- package add/remove/change receiver with event bus propagation.
 
-```text
-CanvasLauncher/
-  app/
-  core/
-    common/
-    model/
-    ui/
-    settings/
-    database/
-    packages/
-    performance/
-  domain/
-  feature/
-    apps/
-    canvas/
-    launcher/
+### Infinite canvas interaction
+- one-finger pan;
+- two-finger pinch-to-zoom;
+- world/screen coordinate transforms;
+- viewport culling for large app sets;
+- minimap overlay when zoomed out;
+- edge-gesture guard + interaction arbitration to reduce accidental conflicts.
+
+### App management and discovery
+- tap icon to launch app;
+- long-press drag-and-drop with persisted world coordinates;
+- app list panel with search, "show on canvas", and uninstall action;
+- smart search overlay with top-match quick launch;
+- fallback web search in browser from launcher search input.
+
+### Canvas edit mode
+- brush strokes;
+- sticky notes;
+- text objects;
+- frames;
+- inline text/title editing;
+- object move/resize/delete;
+- multi-select with selection bounds;
+- snap guides and snap-assist behavior.
+
+### Layout intelligence
+- layouts: `SPIRAL`, `RECTANGLE`, `CIRCLE`, `OVAL`, `SMART_AUTO`, `ICON_COLOR`;
+- semantic smart grouping (communication, social, media, games, work, finance, etc.);
+- dominant icon-color grouping;
+- auto-generated labeled frames for `SMART_AUTO` and `ICON_COLOR` group layouts.
+
+### Personalization
+- theme mode: system, light, dark;
+- 4 light palettes and 4 dark palettes;
+- app language: system, English, Russian, Spanish, German, French, Portuguese (Brazil).
+
+### Data layer and persistence
+- Room persistence for app positions and canvas edit objects (strokes, notes, text, frames);
+- DataStore preferences for layout and theme settings;
+- icon caching pipeline (memory + disk cache) with preload/invalidation.
+
+## Feature Matrix
+| Area | Status | Details |
+|---|---|---|
+| Launcher role flow | Implemented | Onboarding + `HOME` role request/fallback |
+| Infinite canvas | Implemented | Pan/zoom, transforms, culling, minimap |
+| App dragging | Implemented | Persisted world coordinates |
+| Search and quick launch | Implemented | Ranked matches + launch top result |
+| Apps list management | Implemented | List search, jump to canvas, uninstall |
+| Edit mode objects | Implemented | Brush, notes, text, frames |
+| Multi-select edit operations | Implemented | Selection, resize, move, delete |
+| Smart semantic layout | Implemented | Grouping + auto labeled frames |
+| Icon-color layout | Implemented | Dominant-color analysis + auto frames |
+| Localization | Implemented | 6 explicit languages + system |
+| Widgets | Not implemented yet | Planned area |
+| Folders/icon packs | Not implemented yet | Planned area |
+| Cloud sync | Not implemented yet | Planned area |
+
+## Project Scale
+- 12 Gradle modules;
+- 30+ automated tests (`*Test.kt` + smoke coverage);
+- modular Clean-style separation (`app` / `domain` / `feature` / `core`).
+
+## Architecture
+```mermaid
+graph TD
+    A[app] --> D[domain]
+    A --> FL[feature:launcher]
+    A --> FC[feature:canvas]
+    A --> FA[feature:apps]
+    A --> CD[core:database]
+    A --> CP[core:packages]
+    A --> CS[core:settings]
+    A --> CU[core:ui]
+    A --> CM[core:model]
+    A --> CC[core:common]
+    A --> CPerf[core:performance]
+
+    D --> CM
+    D --> CC
+    D --> CPerf
+
+    FL --> D
+    FL --> FC
+    FL --> FA
+    FL --> CP
+    FL --> CPerf
+
+    FA --> CD
+    CP --> D
+    CS --> D
 ```
 
-## Key technical decisions
+## Module Guide
+| Module | Responsibility |
+|---|---|
+| `:app` | Activities, launcher/default flow, settings, i18n, receiver wiring |
+| `:domain` | Use cases, contracts, layout strategies/grouping |
+| `:feature:launcher` | Main launcher UI state, tools overlay, edit orchestration |
+| `:feature:canvas` | Canvas rendering, gesture handling, drag interaction |
+| `:feature:apps` | Room-backed app store implementation |
+| `:core:database` | Room DB, DAO, entities, migrations |
+| `:core:packages` | PackageManager sources, app launch service, icon cache, package event bus |
+| `:core:performance` | World/screen transforms, culling, minimap projection |
+| `:core:settings` | DataStore-backed preferences and mappers |
+| `:core:model` | Shared UI/app/canvas domain models |
+| `:core:ui` | Shared theme and design primitives |
+| `:core:common` | Shared result/coroutines primitives |
 
-- Compose + low-level gesture handling in a single canvas surface for MVP speed and architecture cleanliness.
-- Camera state (`worldCenter`, `scale`, viewport size) is isolated from object model.
-- World-space persistence for icons (`x`, `y` in DB) with deterministic transforms:
-  - `screen = (world - center) * scale + viewportCenter`
-  - `world = (screen - viewportCenter) / scale + center`
-- Culling is computed in world-space with an extra buffer to reduce pop-in.
-- Icon cache:
-  - `Drawable -> Bitmap` normalized to `144x144`,
-  - stored in memory LRU (`~24MB` default),
-  - preloaded after sync and invalidated on package changes.
-- Sync logic is implemented as use case (`SyncAppsWithSystemUseCase`) and reused for initial reconciliation.
+## Tech Stack
+- Kotlin + Coroutines + Flow;
+- Jetpack Compose + Material 3;
+- Hilt DI;
+- Room;
+- DataStore Preferences;
+- multi-module Gradle build.
 
-## Database
+## Quick Start
+### Prerequisites
+- Android Studio (recent stable);
+- Android SDK 26+;
+- JDK 21 recommended (project also targets Java 17 for Android modules).
 
-- Table: `apps_table`
-- Columns:
-  - `packageName` (`PRIMARY KEY`)
-  - `label` (`TEXT`)
-  - `x` (`REAL`)
-  - `y` (`REAL`)
-- Future migrations:
-  - `DatabaseMigrations.ALL` is the dedicated extension point for explicit migrations when schema version increases.
-
-## Security and reliability
-
-- No unnecessary dangerous permissions.
-- Package visibility handled via `<queries>` for launcher-intent resolution.
-- `QUERY_ALL_PACKAGES` is intentionally not used in this MVP.
-- Launch failures and missing intents are handled with safe `AppResult` failures.
-- Receiver does minimal work and only publishes lightweight events to in-app bus.
-- Null/race-safe handling for package add/remove/change flows.
-
-## Build & run
-
-## Requirements
-
-- Android Studio (recent stable)
-- Android SDK 26+
-- JDK 17
-
-## Commands
-
+### Build
 ```bash
+# macOS / Linux
 ./gradlew :app:assembleDebug
-./gradlew :domain:test :core:performance:test
+
+# Windows PowerShell
+.\gradlew.bat :app:assembleDebug
 ```
 
-Install and set `Canvas Launcher` as default Home app on device/emulator.
+### Run
+1. Install debug APK on device/emulator.
+2. Open Canvas Launcher.
+3. Set it as your default Home app.
 
 ## Testing
+```bash
+# macOS / Linux
+./gradlew :domain:test :core:model:test :core:performance:test :core:settings:test :feature:canvas:test :feature:launcher:test :app:testDebugUnitTest
 
-Unit tests are included for:
+# Windows PowerShell
+.\gradlew.bat :domain:test :core:model:test :core:performance:test :core:settings:test :feature:canvas:test :feature:launcher:test :app:testDebugUnitTest
+```
 
-- `SpiralLayoutStrategy`
-- world/screen coordinate transforms
-- viewport culling
-- sync/reconciliation logic
-- theme mode use cases + preferences mapping
-- tap/gesture arbitration around app icons
+CI is configured to run these checks on pushes and pull requests.
 
-Main test files:
+## Roadmap
+- [x] Infinite canvas launcher base
+- [x] Smart semantic layout presets
+- [x] Icon-color clustering presets
+- [x] Editable canvas objects (brush/notes/text/frames)
+- [ ] Widgets on canvas
+- [ ] Folders and advanced icon customization
+- [ ] Backup/export-import of canvas state
+- [ ] Performance benchmark automation and macrobench suite
+- [ ] Optional cloud sync
 
-- `domain/src/test/.../SpiralLayoutStrategyTest.kt`
-- `core/performance/src/test/.../WorldScreenTransformerTest.kt`
-- `core/performance/src/test/.../ViewportCullerTest.kt`
-- `domain/src/test/.../SyncAppsWithSystemUseCaseTest.kt`
+## Contributing
+Contributions are welcome and strongly encouraged.
 
-## Performance notes
+Start here:
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Pull Request Template](.github/pull_request_template.md)
 
-### Potential bottlenecks
+Suggested first contribution areas:
+- canvas interaction polish and gesture UX;
+- accessibility and localization improvements;
+- test coverage for edge-case layout/edit scenarios;
+- settings UX and discoverability.
 
-- icon decode/preload latency at cold start,
-- excessive allocations if visible-app list churns too often,
-- DB writes if drag-save frequency increases.
+## Community Standards
+- be respectful and constructive;
+- keep changes small and reviewable;
+- include tests for non-trivial behavior changes;
+- document architectural decisions in PR descriptions.
 
-### How to validate FPS/Jank
-
-- Use `Profile GPU Rendering` and `Macrobenchmark/JankStats` in v2.
-- Stress scenario: 200+ apps, rapid pan/zoom, repeated drag interactions.
-- Ensure culling keeps composed/drawn items near visible bounds only.
-
-### Planned v2 optimizations
-
-- staged icon prefetch by proximity to viewport,
-- persistent disk icon cache,
-- stronger render-layer batching for large datasets,
-- optional velocity-based camera fling and kinetic panning.
-
-## MVP limitations (intentional)
-
-- No widgets
-- No folders
-- No icon packs
-- No app drawer screen
-- No advanced wallpaper controls
-- No cloud sync/search
-
-## Roadmap (v2+)
-
-- extended settings for canvas tuning (grid density, minimap threshold)
-- backup/restore of icon coordinates
-- app grouping primitives
-- richer animation system with strict frame-budget controls
-- benchmark + baseline profile integration
+## License
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.

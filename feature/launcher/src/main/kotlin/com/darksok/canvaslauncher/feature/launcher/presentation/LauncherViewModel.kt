@@ -1,6 +1,7 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.darksok.canvaslauncher.core.common.coroutines.DispatchersProvider
@@ -466,6 +467,15 @@ class LauncherViewModel @Inject constructor(
         viewportController.updateViewportSize(widthPx, heightPx)
     }
 
+    fun onHostResumed() {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { refreshPersistedFrames() }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to refresh persisted frames on resume", throwable)
+                }
+        }
+    }
+
     fun onTransform(
         panDeltaPx: ScreenPoint,
         zoomFactor: Float,
@@ -723,8 +733,8 @@ class LauncherViewModel @Inject constructor(
                 stickyNotes.update { notes -> notes + note }
                 persistStickyNote(note)
                 openInlineEditor(
-                    title = "Sticky note",
-                    placeholder = "Type note",
+                    titleResId = R.string.edit_inline_title_sticky_note,
+                    placeholderResId = R.string.edit_inline_placeholder_note,
                     value = "",
                     target = CanvasInlineEditorTarget.EditSticky(noteId),
                     isDraft = true,
@@ -743,8 +753,8 @@ class LauncherViewModel @Inject constructor(
                 textObjects.update { objects -> objects + text }
                 persistTextObject(text)
                 openInlineEditor(
-                    title = "Text",
-                    placeholder = "Type text",
+                    titleResId = R.string.edit_inline_title_text,
+                    placeholderResId = R.string.edit_inline_placeholder_text,
                     value = "",
                     target = CanvasInlineEditorTarget.EditText(textId),
                     isDraft = true,
@@ -1072,8 +1082,8 @@ class LauncherViewModel @Inject constructor(
             editSelectedColorArgb.value = note.colorArgb
             editTextSizeWorld.value = note.textSizeWorld
             openInlineEditor(
-                title = "Edit note",
-                placeholder = "Type note",
+                titleResId = R.string.edit_inline_title_edit_note,
+                placeholderResId = R.string.edit_inline_placeholder_note,
                 value = note.text,
                 target = CanvasInlineEditorTarget.EditSticky(noteId),
             )
@@ -1126,8 +1136,8 @@ class LauncherViewModel @Inject constructor(
         editSelectedColorArgb.value = text.colorArgb
         editTextSizeWorld.value = text.textSizeWorld
         openInlineEditor(
-            title = "Edit text",
-            placeholder = "Type text",
+            titleResId = R.string.edit_inline_title_edit_text,
+            placeholderResId = R.string.edit_inline_placeholder_text,
             value = text.text,
             target = CanvasInlineEditorTarget.EditText(textId),
         )
@@ -1143,8 +1153,8 @@ class LauncherViewModel @Inject constructor(
         val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
         editSelectedColorArgb.value = frame.colorArgb
         openInlineEditor(
-            title = "Edit frame",
-            placeholder = "Type frame title",
+            titleResId = R.string.edit_inline_title_edit_frame,
+            placeholderResId = R.string.edit_inline_placeholder_frame_title,
             value = frame.title,
             target = CanvasInlineEditorTarget.EditFrame(frameId),
         )
@@ -1741,8 +1751,8 @@ class LauncherViewModel @Inject constructor(
         persistFrameObject(frame)
         if (openEditor) {
             openInlineEditor(
-                title = "Frame title",
-                placeholder = "Type frame title",
+                titleResId = R.string.edit_inline_title_frame_title,
+                placeholderResId = R.string.edit_inline_placeholder_frame_title,
                 value = "",
                 target = CanvasInlineEditorTarget.EditFrame(frameId),
                 isDraft = isDraft,
@@ -2272,6 +2282,28 @@ class LauncherViewModel @Inject constructor(
         )
     }
 
+    private suspend fun refreshPersistedFrames() {
+        val persistedFrameObjects = canvasEditDao.getFrameObjects().map { entity ->
+            CanvasFrameObjectUiState(
+                id = entity.id,
+                title = entity.title,
+                center = WorldPoint(entity.centerX, entity.centerY),
+                widthWorld = entity.widthWorld,
+                heightWorld = entity.heightWorld,
+                colorArgb = entity.colorArgb,
+            )
+        }
+        frameObjects.value = persistedFrameObjects
+        val frameIds = persistedFrameObjects.mapTo(HashSet()) { frame -> frame.id }
+        selectedFrameIdForResize.value = selectedFrameIdForResize.value?.takeIf { frameId ->
+            frameId in frameIds
+        }
+        if (activeFrameResizeSession?.frameId !in frameIds) {
+            activeFrameResizeSession = null
+        }
+        pruneSelectionToExistingObjects()
+    }
+
     private fun persistDraggedObject(target: CanvasObjectDragTarget?) {
         when (target) {
             is CanvasObjectDragTarget.Sticky -> {
@@ -2429,16 +2461,16 @@ class LauncherViewModel @Inject constructor(
     }
 
     private fun openInlineEditor(
-        title: String,
-        placeholder: String,
+        @StringRes titleResId: Int?,
+        @StringRes placeholderResId: Int?,
         value: String,
         target: CanvasInlineEditorTarget,
         isDraft: Boolean = false,
     ) {
         editInlineEditor.value = CanvasInlineEditorUiState(
             isVisible = true,
-            title = title,
-            placeholder = placeholder,
+            titleResId = titleResId,
+            placeholderResId = placeholderResId,
             value = value,
             initialValue = value,
             isDraft = isDraft,
@@ -2914,7 +2946,7 @@ private fun CanvasFrameObjectUiState.worldBounds(): WorldBounds {
 }
 
 private fun CanvasTextObjectUiState.estimatedWorldBounds(): WorldBounds {
-    val safeText = text.ifBlank { "Text" }
+    val safeText = text.ifBlank { "A" }
     val lines = safeText.split('\n').ifEmpty { listOf(safeText) }
     val longestLine = lines.maxOfOrNull { it.length }?.coerceAtLeast(1) ?: 1
     val lineCount = lines.size.coerceAtLeast(1)

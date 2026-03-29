@@ -5,12 +5,16 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -31,11 +35,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,17 +57,23 @@ import com.darksok.canvaslauncher.core.model.ui.resolveDarkTheme
 import com.darksok.canvaslauncher.core.ui.theme.CanvasLauncherTheme
 import com.darksok.canvaslauncher.core.ui.theme.darkPalettePreviewColors
 import com.darksok.canvaslauncher.core.ui.theme.lightPalettePreviewColors
+import com.darksok.canvaslauncher.i18n.AppLanguage
+import com.darksok.canvaslauncher.i18n.AppLocaleManager
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsRoute(
     onClose: () -> Unit,
     onOpenLauncherChooser: () -> Unit,
     onOpenPhoneSettings: () -> Unit,
+    onLanguageSelected: (AppLanguage) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var layoutDescriptionMode by remember { mutableStateOf<AppLayoutMode?>(null) }
+    var selectedLanguage by remember { mutableStateOf(AppLocaleManager.readPreferredLanguage(context)) }
     val isSystemDark = isSystemInDarkTheme()
     val darkTheme = uiState.themeMode.resolveDarkTheme(isSystemDark)
 
@@ -76,40 +90,103 @@ fun SettingsRoute(
                     .fillMaxSize()
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text(
                             text = stringResource(id = R.string.settings_title),
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             text = stringResource(id = R.string.settings_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                         )
                     }
-                    OutlinedButton(onClick = onClose) {
-                        Text(text = stringResource(id = R.string.settings_close_button))
+                    OutlinedButton(
+                        onClick = onClose,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = stringResource(id = R.string.settings_close_button),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                     tonalElevation = 2.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(id = R.string.settings_language_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = stringResource(id = R.string.settings_language_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            AppLanguage.entries.forEach { language ->
+                                FilterChip(
+                                    selected = selectedLanguage == language,
+                                    onClick = {
+                                        if (selectedLanguage != language) {
+                                            selectedLanguage = language
+                                            onLanguageSelected(language)
+                                        }
+                                    },
+                                    label = {
+                                        Text(
+                                            text = languageLabel(language),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                                        selectedLabelColor = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    modifier = Modifier.heightIn(min = 34.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = stringResource(id = R.string.settings_layout_title),
@@ -145,14 +222,14 @@ fun SettingsRoute(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                     tonalElevation = 2.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = stringResource(id = R.string.settings_theme_title),
@@ -164,18 +241,28 @@ fun SettingsRoute(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             ThemeMode.entries.forEach { mode ->
                                 FilterChip(
                                     selected = uiState.themeMode == mode,
                                     onClick = { viewModel.onThemeModeSelected(mode) },
                                     label = {
-                                        Text(text = themeModeLabel(mode))
+                                        Text(
+                                            text = themeModeLabel(mode),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                                         selectedLabelColor = MaterialTheme.colorScheme.onSurface,
                                     ),
+                                    modifier = Modifier.heightIn(min = 34.dp),
                                 )
                             }
                         }
@@ -219,14 +306,14 @@ fun SettingsRoute(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                     tonalElevation = 2.dp,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = stringResource(id = R.string.settings_system_controls_title),
@@ -236,14 +323,28 @@ fun SettingsRoute(
                         OutlinedButton(
                             onClick = onOpenLauncherChooser,
                             modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            Text(text = stringResource(id = R.string.settings_launcher_picker_button))
+                            Text(
+                                text = stringResource(id = R.string.settings_launcher_picker_button),
+                                style = MaterialTheme.typography.labelMedium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                         OutlinedButton(
                             onClick = onOpenPhoneSettings,
                             modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            Text(text = stringResource(id = R.string.settings_phone_settings_button))
+                            Text(
+                                text = stringResource(id = R.string.settings_phone_settings_button),
+                                style = MaterialTheme.typography.labelMedium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -271,13 +372,13 @@ private fun PaletteOptionCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             PaletteSwatches(swatches = swatches)
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -290,7 +391,7 @@ private fun PaletteSwatches(swatches: List<Color>) {
         swatches.forEach { color ->
             Box(
                 modifier = Modifier
-                    .size(14.dp)
+                    .size(12.dp)
                     .background(color = color, shape = CircleShape),
             )
         }
@@ -322,9 +423,9 @@ private fun LayoutModeOptionCard(
     ) {
         Text(
             text = layoutModeLabel(mode),
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
         )
     }
 }
@@ -377,6 +478,7 @@ private fun layoutModeLabel(mode: AppLayoutMode): String {
         AppLayoutMode.CIRCLE -> stringResource(id = R.string.layout_mode_circle)
         AppLayoutMode.OVAL -> stringResource(id = R.string.layout_mode_oval)
         AppLayoutMode.SMART_AUTO -> stringResource(id = R.string.layout_mode_smart_auto)
+        AppLayoutMode.ICON_COLOR -> stringResource(id = R.string.layout_mode_icon_color)
     }
 }
 
@@ -388,6 +490,20 @@ private fun layoutModeDescription(mode: AppLayoutMode): String {
         AppLayoutMode.CIRCLE -> stringResource(id = R.string.layout_mode_circle_description)
         AppLayoutMode.OVAL -> stringResource(id = R.string.layout_mode_oval_description)
         AppLayoutMode.SMART_AUTO -> stringResource(id = R.string.layout_mode_smart_auto_description)
+        AppLayoutMode.ICON_COLOR -> stringResource(id = R.string.layout_mode_icon_color_description)
+    }
+}
+
+@Composable
+private fun languageLabel(language: AppLanguage): String {
+    return when (language) {
+        AppLanguage.SYSTEM -> stringResource(id = R.string.language_system)
+        AppLanguage.ENGLISH -> stringResource(id = R.string.language_english)
+        AppLanguage.RUSSIAN -> stringResource(id = R.string.language_russian)
+        AppLanguage.SPANISH -> stringResource(id = R.string.language_spanish)
+        AppLanguage.GERMAN -> stringResource(id = R.string.language_german)
+        AppLanguage.FRENCH -> stringResource(id = R.string.language_french)
+        AppLanguage.PORTUGUESE_BRAZIL -> stringResource(id = R.string.language_portuguese_brazil)
     }
 }
 

@@ -1,0 +1,32 @@
+<resources>
+    <string name="error_launch_unavailable">Не удалось открыть это приложение.</string>
+    <string name="search_placeholder">Найти приложение на холсте</string>
+    <string name="search_launch_top_match">Открыть приложение «%1$s»</string>
+    <string name="apps_list_title">Список приложений</string>
+    <string name="apps_list_count">%1$d приложений</string>
+    <string name="apps_list_close">Закрыть</string>
+    <string name="apps_list_empty">По вашему запросу ничего не найдено.</string>
+    <string name="apps_list_search_placeholder">Поиск приложений</string>
+    <string name="apps_list_menu_show_canvas">Показать на холсте</string>
+    <string name="apps_list_menu_uninstall">Удалить приложение</string>
+    <string name="apps_list_menu_cancel">Отмена</string>
+    <string name="error_uninstall_unavailable">Не удалось открыть экран удаления.</string>
+    <string name="error_web_search_unavailable">Не удалось открыть поиск в браузере.</string>
+    <string name="edit_clear_custom_elements">Очистить пользовательские элементы</string>
+    <string name="edit_inline_title_sticky_note">Заметка</string>
+    <string name="edit_inline_title_text">Текст</string>
+    <string name="edit_inline_title_edit_note">Редактировать заметку</string>
+    <string name="edit_inline_title_edit_text">Редактировать текст</string>
+    <string name="edit_inline_title_edit_frame">Редактировать фрейм</string>
+    <string name="edit_inline_title_frame_title">Заголовок фрейма</string>
+    <string name="edit_inline_placeholder_note">Введите заметку</string>
+    <string name="edit_inline_placeholder_text">Введите текст</string>
+    <string name="edit_inline_placeholder_frame_title">Введите заголовок фрейма</string>
+    <string name="edit_brush_size_value">Кисть %1$d</string>
+    <string name="edit_sticky_text_size_value">Текст заметки %1$d</string>
+    <string name="edit_text_size_value">Текст %1$d</string>
+    <string name="canvas_frame_fallback_title">Фрейм</string>
+    <string name="canvas_sticky_fallback_text">Заметка</string>
+    <string name="canvas_text_fallback_text">Текст</string>
+    <string name="canvas_selection_delete_content_description">Удалить выбранные элементы</string>
+</resources>

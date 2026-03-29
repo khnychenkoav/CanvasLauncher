@@ -1,5 +1,6 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
+import androidx.annotation.StringRes
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 
 enum class CanvasEditToolId {
@@ -115,8 +116,8 @@ sealed interface CanvasInlineEditorTarget {
 
 data class CanvasInlineEditorUiState(
     val isVisible: Boolean = false,
-    val title: String = "",
-    val placeholder: String = "",
+    @StringRes val titleResId: Int? = null,
+    @StringRes val placeholderResId: Int? = null,
     val value: String = "",
     val initialValue: String = "",
     val isDraft: Boolean = false,

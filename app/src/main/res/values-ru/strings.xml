@@ -1,0 +1,93 @@
+<resources>
+    <string name="app_name">Canvas Launcher</string>
+
+    <string name="default_brand_label">Canvas</string>
+    <string name="default_intro_title">Canvas Launcher — ваш бесконечный домашний экран</string>
+    <string name="default_intro_body">Панорамируйте, масштабируйте и свободно размещайте приложения на безграничном 2D-холсте. Сделайте Canvas лаунчером по умолчанию в одно касание.</string>
+    <string name="default_make_launcher_button">Сделать лаунчером по умолчанию</string>
+    <string name="default_open_settings_button">Открыть настройки</string>
+    <string name="default_open_canvas_button">Открыть главный экран</string>
+    <string name="default_open_settings_failed">Не удалось открыть настройки лаунчера.</string>
+    <string name="default_open_home_failed">Не удалось открыть домашний экран.</string>
+
+    <string name="default_feature_title">Почему это удобнее</string>
+    <string name="default_feature_line_one">Без жестких страниц: каждое приложение имеет свои мировые координаты.</string>
+    <string name="default_feature_line_two">Плавный pinch-zoom с ориентирами помогает не теряться.</string>
+    <string name="default_feature_line_three">Зажмите и перетаскивайте где угодно, затем продолжайте исследовать.</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="settings_subtitle">Настройте Canvas Launcher под себя.</string>
+    <string name="settings_theme_title">Тема</string>
+    <string name="settings_theme_hint">Тема применяется на экранах приветствия, настроек и лаунчера.</string>
+    <string name="settings_language_title">Язык</string>
+    <string name="settings_language_hint">Выберите язык приложения. Применяется ко всем экранам и инструментам.</string>
+    <string name="settings_palette_hint">Выберите отдельные цветовые пресеты для светлой и темной темы.</string>
+    <string name="settings_light_palette_title">Светлая палитра</string>
+    <string name="settings_dark_palette_title">Темная палитра</string>
+    <string name="settings_reopen_hint">Этот экран можно открыть снова в любое время из иконки приложения.</string>
+    <string name="settings_layout_title">Расположение приложений</string>
+    <string name="settings_layout_hint">Нажмите, чтобы применить режим. Удерживайте вариант, чтобы посмотреть описание.</string>
+    <string name="settings_system_controls_title">Система</string>
+    <string name="settings_launcher_picker_button">Выбрать лаунчер по умолчанию</string>
+    <string name="settings_phone_settings_button">Открыть настройки телефона</string>
+    <string name="settings_close_button">Закрыть</string>
+
+    <string name="theme_mode_system">Системная</string>
+    <string name="theme_mode_light">Светлая</string>
+    <string name="theme_mode_dark">Тёмная</string>
+    <string name="language_system">Системный</string>
+    <string name="language_english">Английский</string>
+    <string name="language_russian">Русский</string>
+    <string name="language_spanish">Испанский</string>
+    <string name="language_german">Немецкий</string>
+    <string name="language_french">Французский</string>
+    <string name="language_portuguese_brazil">Португальский (Бразилия)</string>
+
+    <string name="light_palette_sky_breeze">Небесный бриз</string>
+    <string name="light_palette_mint_garden">Мятный сад</string>
+    <string name="light_palette_sunset_glow">Закатное сияние</string>
+    <string name="light_palette_rose_dawn">Розовый рассвет</string>
+
+    <string name="dark_palette_midnight_blue">Полуночный синий</string>
+    <string name="dark_palette_deep_ocean">Глубокий океан</string>
+    <string name="dark_palette_forest_night">Лесная ночь</string>
+    <string name="dark_palette_charcoal_amber">Графит и янтарь</string>
+
+    <string name="layout_mode_spiral">Спираль</string>
+    <string name="layout_mode_rectangle">Прямоугольник</string>
+    <string name="layout_mode_circle">Круг</string>
+    <string name="layout_mode_oval">Овал</string>
+    <string name="layout_mode_smart_auto">Умная авто-раскладка</string>
+    <string name="layout_mode_icon_color">Группы по цвету иконки</string>
+
+    <string name="layout_mode_spiral_description">Размещает приложения по плавной спирали от центра к краям. Отлично подходит для органичной навигации и постепенного расширения.</string>
+    <string name="layout_mode_rectangle_description">Размещает приложения в сбалансированной прямоугольной сетке под соотношение экрана, с ровными отступами и аккуратными рядами.</string>
+    <string name="layout_mode_circle_description">Размещает приложения на концентрических окружностях вокруг центра, сохраняя равную дистанцию между элементами.</string>
+    <string name="layout_mode_oval_description">Размещает приложения на эллиптических кольцах, давая больше пространства по горизонтали при комфортных интервалах.</string>
+    <string name="layout_mode_smart_auto_description">Использует улучшенный семантический и пакетный анализ, чтобы точнее группировать приложения на разных языках, затем размещает каждую группу в подписанном фрейме.</string>
+    <string name="layout_mode_icon_color_description">Анализирует каждую иконку и группирует приложения по доминирующему цвету. Каждая цветовая группа получает свой подписанный фрейм.</string>
+
+    <string name="smart_group_communication">Общение</string>
+    <string name="smart_group_social">Соцсети</string>
+    <string name="smart_group_media">Медиа</string>
+    <string name="smart_group_games">Игры</string>
+    <string name="smart_group_work">Работа</string>
+    <string name="smart_group_finance">Финансы</string>
+    <string name="smart_group_shopping">Покупки</string>
+    <string name="smart_group_travel">Путешествия и карты</string>
+    <string name="smart_group_health">Здоровье</string>
+    <string name="smart_group_education">Образование</string>
+    <string name="smart_group_system">Система</string>
+    <string name="smart_group_utilities">Утилиты</string>
+
+    <string name="icon_color_group_red">Красный</string>
+    <string name="icon_color_group_orange">Оранжевый</string>
+    <string name="icon_color_group_yellow">Жёлтый</string>
+    <string name="icon_color_group_green">Зелёный</string>
+    <string name="icon_color_group_cyan">Бирюзовый</string>
+    <string name="icon_color_group_blue">Синий</string>
+    <string name="icon_color_group_purple">Фиолетовый</string>
+    <string name="icon_color_group_pink">Розовый</string>
+    <string name="icon_color_group_brown">Коричневый</string>
+    <string name="icon_color_group_monochrome">Монохром</string>
+</resources>

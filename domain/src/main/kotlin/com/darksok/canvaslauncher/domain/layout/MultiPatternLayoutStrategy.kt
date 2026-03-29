@@ -4,7 +4,6 @@ import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.app.InstalledApp
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.model.ui.AppLayoutMode
-import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.PI
 import kotlin.math.ceil
@@ -30,6 +29,7 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
             AppLayoutMode.CIRCLE -> layoutRadial(existingApps, newApps, center, xScale = 1f, yScale = 1f)
             AppLayoutMode.OVAL -> layoutRadial(existingApps, newApps, center, xScale = 1.46f, yScale = 0.92f)
             AppLayoutMode.SMART_AUTO -> layoutSmart(existingApps, newApps, center)
+            AppLayoutMode.ICON_COLOR -> layoutRectangle(existingApps, newApps, center)
         }
     }
 
@@ -87,7 +87,6 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
             }
             addAll(newApps)
         }.distinctBy { app -> app.packageName }
-            .sortedBy { app -> app.label.lowercase(Locale.ROOT) }
         if (all.isEmpty()) return emptyList()
 
         val positionByPackage = computeSmartLayoutPositions(
@@ -191,21 +190,16 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
         allApps: List<InstalledApp>,
         center: WorldPoint,
     ): Map<String, WorldPoint> {
-        val grouped = SmartCategory.entries.mapNotNull { category ->
-            val apps = allApps.filter { app -> classifySmartCategory(app) == category }
-            if (apps.isEmpty()) null else apps
-        }
-        if (grouped.isEmpty()) return emptyMap()
-
-        val groups = grouped.map { apps ->
-            val columns = ceil(sqrt(apps.size.toDouble())).toInt().coerceAtLeast(2)
-            val rows = ceil(apps.size / columns.toDouble()).toInt().coerceAtLeast(1)
+        val groups = SmartLayoutGrouping.group(allApps).map { grouped ->
+            val columns = ceil(sqrt(grouped.apps.size.toDouble())).toInt().coerceAtLeast(2)
+            val rows = ceil(grouped.apps.size / columns.toDouble()).toInt().coerceAtLeast(1)
             SmartGroup(
-                apps = apps,
+                apps = grouped.apps,
                 columns = columns,
                 rows = rows,
             )
         }
+        if (groups.isEmpty()) return emptyMap()
 
         val maxColumns = groups.maxOf { group -> group.columns }.coerceAtLeast(3)
         val maxRows = groups.maxOf { group -> group.rows }.coerceAtLeast(2)
@@ -285,25 +279,6 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
         }
     }
 
-    private fun classifySmartCategory(app: InstalledApp): SmartCategory {
-        val source = "${app.packageName} ${app.label}".lowercase(Locale.ROOT)
-        return when {
-            source.containsAny(MESSAGING_KEYWORDS) -> SmartCategory.Messaging
-            source.containsAny(SOCIAL_KEYWORDS) -> SmartCategory.Social
-            source.containsAny(ENTERTAINMENT_KEYWORDS) -> SmartCategory.Entertainment
-            source.containsAny(GAMES_KEYWORDS) -> SmartCategory.Games
-            source.containsAny(PRODUCTIVITY_KEYWORDS) -> SmartCategory.Productivity
-            source.containsAny(FINANCE_KEYWORDS) -> SmartCategory.Finance
-            source.containsAny(SHOPPING_KEYWORDS) -> SmartCategory.Shopping
-            source.containsAny(TOOLS_KEYWORDS) -> SmartCategory.Tools
-            else -> SmartCategory.Other
-        }
-    }
-
-    private fun String.containsAny(keywords: Set<String>): Boolean {
-        return keywords.any { keyword -> contains(keyword) }
-    }
-
     private fun isPositionFree(
         candidate: WorldPoint,
         occupied: List<WorldPoint>,
@@ -330,18 +305,6 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
         val rows: Int,
     )
 
-    private enum class SmartCategory {
-        Messaging,
-        Social,
-        Entertainment,
-        Games,
-        Productivity,
-        Finance,
-        Shopping,
-        Tools,
-        Other,
-    }
-
     private companion object {
         private const val GRID_STEP_WORLD = 136f
         private const val RING_STEP_WORLD = 160f
@@ -351,133 +314,5 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
         private const val MIN_DISTANCE_BETWEEN_APPS_WORLD = 108f
         private const val FREE_POSITION_SEARCH_RINGS = 12
         private const val MAX_INDEX_PLACEMENT_ATTEMPTS = 25_000
-
-        private val MESSAGING_KEYWORDS = setOf(
-            "telegram",
-            "whatsapp",
-            "signal",
-            "messenger",
-            "imessage",
-            "wechat",
-            "viber",
-            "line",
-            "chat",
-            "mail",
-            "gmail",
-            "outlook",
-            "teams",
-            "slack",
-            "discord",
-            "skype",
-        )
-
-        private val SOCIAL_KEYWORDS = setOf(
-            "instagram",
-            "facebook",
-            "snapchat",
-            "twitter",
-            "x.com",
-            "reddit",
-            "vk",
-            "social",
-            "threads",
-            "pinterest",
-            "linkedin",
-            "mastodon",
-        )
-
-        private val ENTERTAINMENT_KEYWORDS = setOf(
-            "youtube",
-            "music",
-            "spotify",
-            "netflix",
-            "primevideo",
-            "hbo",
-            "disney",
-            "twitch",
-            "tiktok",
-            "video",
-            "stream",
-            "cinema",
-            "tv",
-            "podcast",
-        )
-
-        private val GAMES_KEYWORDS = setOf(
-            "game",
-            "games",
-            "play games",
-            "clash",
-            "roblox",
-            "minecraft",
-            "steam",
-            "epic",
-            "riot",
-            "brawl",
-        )
-
-        private val PRODUCTIVITY_KEYWORDS = setOf(
-            "docs",
-            "sheets",
-            "slides",
-            "calendar",
-            "drive",
-            "office",
-            "word",
-            "excel",
-            "powerpoint",
-            "notion",
-            "todo",
-            "task",
-            "notes",
-            "keep",
-            "workspace",
-        )
-
-        private val FINANCE_KEYWORDS = setOf(
-            "bank",
-            "wallet",
-            "finance",
-            "pay",
-            "money",
-            "invest",
-            "broker",
-            "coin",
-            "crypto",
-        )
-
-        private val SHOPPING_KEYWORDS = setOf(
-            "shop",
-            "store",
-            "market",
-            "aliexpress",
-            "amazon",
-            "ebay",
-            "ozon",
-            "wildberries",
-            "delivery",
-            "food",
-            "uber eats",
-            "doordash",
-            "instacart",
-        )
-
-        private val TOOLS_KEYWORDS = setOf(
-            "settings",
-            "camera",
-            "gallery",
-            "photos",
-            "files",
-            "browser",
-            "chrome",
-            "maps",
-            "calculator",
-            "clock",
-            "contacts",
-            "phone",
-            "dialer",
-            "launcher",
-            "tools",
-        )
     }
 }

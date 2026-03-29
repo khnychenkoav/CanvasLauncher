@@ -1,0 +1,93 @@
+<resources>
+    <string name="app_name">Canvas Launcher</string>
+
+    <string name="default_brand_label">Canvas</string>
+    <string name="default_intro_title">Canvas Launcher, tu pantalla de inicio infinita</string>
+    <string name="default_intro_body">Desplázate, haz zoom y organiza apps libremente en un lienzo 2D sin límites. Establece Canvas como lanzador predeterminado con un toque.</string>
+    <string name="default_make_launcher_button">Establecer como lanzador predeterminado</string>
+    <string name="default_open_settings_button">Abrir ajustes</string>
+    <string name="default_open_canvas_button">Abrir inicio ahora</string>
+    <string name="default_open_settings_failed">No se pudieron abrir los ajustes del lanzador.</string>
+    <string name="default_open_home_failed">No se pudo abrir la pantalla de inicio.</string>
+
+    <string name="default_feature_title">Por qué se siente mejor</string>
+    <string name="default_feature_line_one">Sin páginas rígidas: cada app vive en coordenadas del mundo.</string>
+    <string name="default_feature_line_two">Zoom con pellizco suave y guías de orientación para no perderte.</string>
+    <string name="default_feature_line_three">Mantén pulsado y arrastra en cualquier parte, luego sigue explorando.</string>
+
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_subtitle">Personaliza Canvas Launcher a tu gusto.</string>
+    <string name="settings_theme_title">Tema</string>
+    <string name="settings_theme_hint">El tema se aplica en introducción, ajustes y lanzador.</string>
+    <string name="settings_language_title">Idioma</string>
+    <string name="settings_language_hint">Elige el idioma de la app. Se aplica a todas las pantallas y herramientas.</string>
+    <string name="settings_palette_hint">Elige paletas de color separadas para apariencia clara y oscura.</string>
+    <string name="settings_light_palette_title">Paleta clara</string>
+    <string name="settings_dark_palette_title">Paleta oscura</string>
+    <string name="settings_reopen_hint">Puedes abrir esta pantalla en cualquier momento desde el icono de la app.</string>
+    <string name="settings_layout_title">Distribución de apps</string>
+    <string name="settings_layout_hint">Toca para aplicar un modo. Mantén pulsado para ver cómo ordena las apps.</string>
+    <string name="settings_system_controls_title">Sistema</string>
+    <string name="settings_launcher_picker_button">Elegir lanzador predeterminado</string>
+    <string name="settings_phone_settings_button">Abrir ajustes del teléfono</string>
+    <string name="settings_close_button">Cerrar</string>
+
+    <string name="theme_mode_system">Sistema</string>
+    <string name="theme_mode_light">Claro</string>
+    <string name="theme_mode_dark">Oscuro</string>
+    <string name="language_system">Sistema</string>
+    <string name="language_english">Inglés</string>
+    <string name="language_russian">Ruso</string>
+    <string name="language_spanish">Español</string>
+    <string name="language_german">Alemán</string>
+    <string name="language_french">Francés</string>
+    <string name="language_portuguese_brazil">Portugués (Brasil)</string>
+
+    <string name="light_palette_sky_breeze">Brisa del cielo</string>
+    <string name="light_palette_mint_garden">Jardín de menta</string>
+    <string name="light_palette_sunset_glow">Brillo del atardecer</string>
+    <string name="light_palette_rose_dawn">Amanecer rosado</string>
+
+    <string name="dark_palette_midnight_blue">Azul medianoche</string>
+    <string name="dark_palette_deep_ocean">Océano profundo</string>
+    <string name="dark_palette_forest_night">Noche de bosque</string>
+    <string name="dark_palette_charcoal_amber">Carbón y ámbar</string>
+
+    <string name="layout_mode_spiral">Espiral</string>
+    <string name="layout_mode_rectangle">Rectángulo</string>
+    <string name="layout_mode_circle">Círculo</string>
+    <string name="layout_mode_oval">Óvalo</string>
+    <string name="layout_mode_smart_auto">Distribución inteligente automática</string>
+    <string name="layout_mode_icon_color">Grupos por color de icono</string>
+
+    <string name="layout_mode_spiral_description">Coloca las apps en una espiral suave desde el centro hacia afuera. Ideal para explorar de forma orgánica y ampliar gradualmente.</string>
+    <string name="layout_mode_rectangle_description">Coloca las apps en una cuadrícula rectangular equilibrada según la proporción de pantalla, con espaciado uniforme y filas limpias.</string>
+    <string name="layout_mode_circle_description">Coloca las apps en anillos circulares alrededor del centro, manteniendo distancia uniforme entre elementos.</string>
+    <string name="layout_mode_oval_description">Coloca las apps en anillos elípticos, ofreciendo más espacio horizontal con separaciones cómodas.</string>
+    <string name="layout_mode_smart_auto_description">Usa un análisis semántico y de paquetes mejorado para agrupar apps con mayor precisión en distintos idiomas, y coloca cada grupo en un marco con etiqueta.</string>
+    <string name="layout_mode_icon_color_description">Analiza cada icono y agrupa apps por su color dominante. Cada grupo de color obtiene su propio marco con etiqueta.</string>
+
+    <string name="smart_group_communication">Comunicación</string>
+    <string name="smart_group_social">Social</string>
+    <string name="smart_group_media">Multimedia</string>
+    <string name="smart_group_games">Juegos</string>
+    <string name="smart_group_work">Trabajo</string>
+    <string name="smart_group_finance">Finanzas</string>
+    <string name="smart_group_shopping">Compras</string>
+    <string name="smart_group_travel">Viajes y mapas</string>
+    <string name="smart_group_health">Salud</string>
+    <string name="smart_group_education">Educación</string>
+    <string name="smart_group_system">Sistema</string>
+    <string name="smart_group_utilities">Utilidades</string>
+
+    <string name="icon_color_group_red">Rojo</string>
+    <string name="icon_color_group_orange">Naranja</string>
+    <string name="icon_color_group_yellow">Amarillo</string>
+    <string name="icon_color_group_green">Verde</string>
+    <string name="icon_color_group_cyan">Cian</string>
+    <string name="icon_color_group_blue">Azul</string>
+    <string name="icon_color_group_purple">Morado</string>
+    <string name="icon_color_group_pink">Rosa</string>
+    <string name="icon_color_group_brown">Marrón</string>
+    <string name="icon_color_group_monochrome">Monocromo</string>
+</resources>

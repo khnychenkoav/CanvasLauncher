@@ -1,0 +1,32 @@
+<resources>
+    <string name="error_launch_unavailable">No se pudo iniciar esta app.</string>
+    <string name="search_placeholder">Buscar app en el lienzo</string>
+    <string name="search_launch_top_match">Abrir app \"%1$s\"</string>
+    <string name="apps_list_title">Lista de apps</string>
+    <string name="apps_list_count">%1$d apps</string>
+    <string name="apps_list_close">Cerrar</string>
+    <string name="apps_list_empty">Ninguna app coincide con tu búsqueda.</string>
+    <string name="apps_list_search_placeholder">Buscar apps</string>
+    <string name="apps_list_menu_show_canvas">Mostrar en el lienzo</string>
+    <string name="apps_list_menu_uninstall">Desinstalar app</string>
+    <string name="apps_list_menu_cancel">Cancelar</string>
+    <string name="error_uninstall_unavailable">No se pudo abrir la pantalla de desinstalación.</string>
+    <string name="error_web_search_unavailable">No se pudo abrir la búsqueda en el navegador.</string>
+    <string name="edit_clear_custom_elements">Borrar elementos personalizados</string>
+    <string name="edit_inline_title_sticky_note">Nota</string>
+    <string name="edit_inline_title_text">Texto</string>
+    <string name="edit_inline_title_edit_note">Editar nota</string>
+    <string name="edit_inline_title_edit_text">Editar texto</string>
+    <string name="edit_inline_title_edit_frame">Editar marco</string>
+    <string name="edit_inline_title_frame_title">Título del marco</string>
+    <string name="edit_inline_placeholder_note">Escribe una nota</string>
+    <string name="edit_inline_placeholder_text">Escribe texto</string>
+    <string name="edit_inline_placeholder_frame_title">Escribe el título del marco</string>
+    <string name="edit_brush_size_value">Pincel %1$d</string>
+    <string name="edit_sticky_text_size_value">Texto de nota %1$d</string>
+    <string name="edit_text_size_value">Texto %1$d</string>
+    <string name="canvas_frame_fallback_title">Marco</string>
+    <string name="canvas_sticky_fallback_text">Nota</string>
+    <string name="canvas_text_fallback_text">Texto</string>
+    <string name="canvas_selection_delete_content_description">Eliminar elementos seleccionados</string>
+</resources>

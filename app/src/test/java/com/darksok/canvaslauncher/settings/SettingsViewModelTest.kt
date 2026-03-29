@@ -1,6 +1,14 @@
 package com.darksok.canvaslauncher.settings
 
+import android.content.ContextWrapper
 import com.darksok.canvaslauncher.core.common.coroutines.DispatchersProvider
+import com.darksok.canvaslauncher.core.database.dao.CanvasEditDao
+import com.darksok.canvaslauncher.core.database.dao.CanvasStrokeWithPointsEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasFrameObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
 import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.app.InstalledApp
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
@@ -10,6 +18,7 @@ import com.darksok.canvaslauncher.core.model.ui.LightThemePalette
 import com.darksok.canvaslauncher.core.model.ui.ThemeMode
 import com.darksok.canvaslauncher.domain.layout.InitialLayoutStrategy
 import com.darksok.canvaslauncher.domain.repository.CanvasAppsStore
+import com.darksok.canvaslauncher.domain.repository.IconCacheGateway
 import com.darksok.canvaslauncher.domain.repository.LayoutPreferencesRepository
 import com.darksok.canvaslauncher.domain.repository.ThemePreferencesRepository
 import com.darksok.canvaslauncher.domain.usecase.ObserveDarkThemePaletteUseCase
@@ -21,6 +30,7 @@ import com.darksok.canvaslauncher.domain.usecase.SetDarkThemePaletteUseCase
 import com.darksok.canvaslauncher.domain.usecase.SetLayoutModeUseCase
 import com.darksok.canvaslauncher.domain.usecase.SetLightThemePaletteUseCase
 import com.darksok.canvaslauncher.domain.usecase.SetThemeModeUseCase
+import com.darksok.canvaslauncher.core.packages.icon.IconBitmapStore
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -126,11 +136,16 @@ class SettingsViewModelTest {
             setDarkThemePaletteUseCase = SetDarkThemePaletteUseCase(themeRepository),
             setLayoutModeUseCase = SetLayoutModeUseCase(layoutRepository),
             rearrangeAppsUseCase = rearrangeUseCase,
+            appsStore = FakeCanvasAppsStore(),
+            canvasEditDao = FakeCanvasEditDao(),
+            iconCacheGateway = FakeIconCacheGateway(),
+            iconBitmapStore = FakeIconBitmapStore(),
             dispatchersProvider = object : DispatchersProvider {
                 override val io: CoroutineDispatcher = dispatcher
                 override val default: CoroutineDispatcher = dispatcher
                 override val main: CoroutineDispatcher = dispatcher
             },
+            appContext = ContextWrapper(null),
         )
     }
 
@@ -197,5 +212,37 @@ class SettingsViewModelTest {
                 )
             }
         }
+    }
+
+    private class FakeCanvasEditDao : CanvasEditDao {
+        override suspend fun getStickyNotes(): List<CanvasStickyNoteEntity> = emptyList()
+        override suspend fun getTextObjects(): List<CanvasTextObjectEntity> = emptyList()
+        override suspend fun getFrameObjects(): List<CanvasFrameObjectEntity> = emptyList()
+        override suspend fun getStrokesWithPoints(): List<CanvasStrokeWithPointsEntity> = emptyList()
+        override suspend fun upsertStickyNote(note: CanvasStickyNoteEntity) = Unit
+        override suspend fun upsertTextObject(textObject: CanvasTextObjectEntity) = Unit
+        override suspend fun upsertFrameObject(frameObject: CanvasFrameObjectEntity) = Unit
+        override suspend fun upsertStroke(stroke: CanvasStrokeEntity) = Unit
+        override suspend fun insertStrokePoints(points: List<CanvasStrokePointEntity>) = Unit
+        override suspend fun deleteStrokePointsByStrokeId(strokeId: String) = Unit
+        override suspend fun deleteStrokeById(strokeId: String) = Unit
+        override suspend fun deleteStickyNoteById(id: String) = Unit
+        override suspend fun deleteTextObjectById(id: String) = Unit
+        override suspend fun deleteFrameObjectById(id: String) = Unit
+        override suspend fun deleteAllStrokes() = Unit
+        override suspend fun deleteAllStickyNotes() = Unit
+        override suspend fun deleteAllTextObjects() = Unit
+        override suspend fun deleteAllFrameObjects() = Unit
+    }
+
+    private class FakeIconCacheGateway : IconCacheGateway {
+        override suspend fun preload(packageNames: Collection<String>) = Unit
+        override suspend fun invalidate(packageName: String) = Unit
+        override suspend fun remove(packageName: String) = Unit
+    }
+
+    private class FakeIconBitmapStore : IconBitmapStore {
+        override val icons = MutableStateFlow<Map<String, android.graphics.Bitmap>>(emptyMap())
+        override fun getCached(packageName: String): android.graphics.Bitmap? = null
     }
 }

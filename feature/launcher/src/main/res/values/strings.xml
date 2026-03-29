@@ -13,4 +13,20 @@
     <string name="error_uninstall_unavailable">Unable to open uninstall screen.</string>
     <string name="error_web_search_unavailable">Unable to open browser search.</string>
     <string name="edit_clear_custom_elements">Clear custom elements</string>
+    <string name="edit_inline_title_sticky_note">Sticky note</string>
+    <string name="edit_inline_title_text">Text</string>
+    <string name="edit_inline_title_edit_note">Edit note</string>
+    <string name="edit_inline_title_edit_text">Edit text</string>
+    <string name="edit_inline_title_edit_frame">Edit frame</string>
+    <string name="edit_inline_title_frame_title">Frame title</string>
+    <string name="edit_inline_placeholder_note">Type note</string>
+    <string name="edit_inline_placeholder_text">Type text</string>
+    <string name="edit_inline_placeholder_frame_title">Type frame title</string>
+    <string name="edit_brush_size_value">Brush %1$d</string>
+    <string name="edit_sticky_text_size_value">Sticky text %1$d</string>
+    <string name="edit_text_size_value">Text %1$d</string>
+    <string name="canvas_frame_fallback_title">Frame</string>
+    <string name="canvas_sticky_fallback_text">Note</string>
+    <string name="canvas_text_fallback_text">Text</string>
+    <string name="canvas_selection_delete_content_description">Delete selected elements</string>
 </resources>

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -44,10 +46,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.darksok.canvaslauncher.feature.launcher.R
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.performance.WorldScreenTransformer
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -145,99 +149,167 @@ fun CanvasEditLayer(
                 onEraseAt = onEraseAt,
             ),
     ) {
-        frames.forEach { frame ->
+        val frameLayouts = frames.map { frame ->
             val center = WorldScreenTransformer.worldToScreen(frame.center, cameraState)
             val widthPx = (frame.widthWorld * scale).coerceAtLeast(28f)
             val heightPx = (frame.heightWorld * scale).coerceAtLeast(28f)
             val frameLeft = center.x - widthPx / 2f
             val frameTop = center.y - heightPx / 2f
+            FrameLayoutState(
+                frame = frame,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                leftPx = frameLeft,
+                topPx = frameTop,
+            )
+        }
 
-            Box(
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(0.3f),
+        ) {
+            frameLayouts.forEach { item ->
+                drawRoundRect(
+                    color = Color(item.frame.colorArgb).copy(alpha = 0.10f),
+                    topLeft = Offset(item.leftPx, item.topPx),
+                    size = Size(item.widthPx, item.heightPx),
+                    cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
+                )
+                drawRoundRect(
+                    color = Color(item.frame.colorArgb).copy(alpha = 0.36f),
+                    topLeft = Offset(item.leftPx, item.topPx),
+                    size = Size(item.widthPx, item.heightPx),
+                    cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
+                    style = Stroke(width = frameBorderStrokePx),
+                )
+            }
+        }
+
+        val viewportWidthPx = cameraState.viewportWidthPx.toFloat()
+        val viewportHeightPx = cameraState.viewportHeightPx.toFloat()
+        frameLayouts.forEach { item ->
+            val frame = item.frame
+            val frameLeft = item.leftPx
+            val frameTop = item.topPx
+            val frameRight = frameLeft + item.widthPx
+            val frameBottom = frameTop + item.heightPx
+
+            if (isEditActive && allowsFrameBorderSelection) {
+                val visibleLeft = frameLeft.coerceAtLeast(0f)
+                val visibleTop = frameTop.coerceAtLeast(0f)
+                val visibleRight = frameRight.coerceAtMost(viewportWidthPx)
+                val visibleBottom = frameBottom.coerceAtMost(viewportHeightPx)
+                val visibleWidthPx = visibleRight - visibleLeft
+                val visibleHeightPx = visibleBottom - visibleTop
+                if (visibleWidthPx > 0f && visibleHeightPx > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    x = visibleLeft.roundToInt(),
+                                    y = visibleTop.roundToInt(),
+                                )
+                            }
+                            .requiredSize(
+                                width = with(density) { visibleWidthPx.toDp() },
+                                height = with(density) { visibleHeightPx.toDp() },
+                            )
+                            .pointerInput(
+                                frame.id,
+                                frameLeft,
+                                frameTop,
+                                frameRight,
+                                frameBottom,
+                                visibleLeft,
+                                visibleTop,
+                                frameBorderHitWidthPx,
+                            ) {
+                                detectTapGestures(
+                                    onTap = { tapOffset ->
+                                        val tapX = visibleLeft + tapOffset.x
+                                        val tapY = visibleTop + tapOffset.y
+                                        if (
+                                            isOnFrameBorderAbsolute(
+                                                tapX = tapX,
+                                                tapY = tapY,
+                                                frameLeft = frameLeft,
+                                                frameTop = frameTop,
+                                                frameRight = frameRight,
+                                                frameBottom = frameBottom,
+                                                hitWidthPx = frameBorderHitWidthPx,
+                                            )
+                                        ) {
+                                            onFrameBorderTap(frame.id)
+                                        }
+                                    },
+                                )
+                            }
+                            .zIndex(0.31f),
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+                tonalElevation = 1.dp,
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            x = frameLeft.roundToInt(),
-                            y = frameTop.roundToInt(),
+                            x = (item.leftPx + with(density) { 8.dp.toPx() }).roundToInt(),
+                            y = (item.topPx + with(density) { 8.dp.toPx() }).roundToInt(),
                         )
                     }
-                    .size(
-                        width = with(density) { widthPx.toDp() },
-                        height = with(density) { heightPx.toDp() },
+                    .zIndex(0.32f)
+                    .objectMoveModifier(
+                        enabled = isEditActive && allowsObjectMove,
+                        target = CanvasObjectDragTarget.Frame(frame.id),
+                        nodeTopLeftScreen = ScreenPoint(
+                            x = item.leftPx + with(density) { 8.dp.toPx() },
+                            y = item.topPx + with(density) { 8.dp.toPx() },
+                        ),
+                        canvasWidthPx = viewportWidthPx,
+                        canvasHeightPx = viewportHeightPx,
+                        autoPanZonePx = autoPanZonePx,
+                        autoPanMaxStepPx = autoPanMaxStepPx,
+                        onObjectDragStart = onObjectDragStart,
+                        onObjectDragDelta = onObjectDragDelta,
+                        onObjectDragEnd = onObjectDragEnd,
+                        onAutoPanDelta = onAutoPanDelta,
                     )
-                    .background(
-                        color = Color(frame.colorArgb).copy(alpha = 0.10f),
-                        shape = RoundedCornerShape(FRAME_CORNER_RADIUS_DP),
-                    )
-                    .pointerInput(allowsFrameBorderSelection, frame.id, widthPx, heightPx) {
-                        if (!allowsFrameBorderSelection) return@pointerInput
-                        detectTapGestures(
-                            onTap = { tapOffset ->
-                                if (isOnFrameBorder(tapOffset, widthPx, heightPx, frameBorderHitWidthPx)) {
-                                    onFrameBorderTap(frame.id)
-                                }
-                            },
-                        )
-                    }
-                    .zIndex(0.3f),
-            ) {
-                Canvas(
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    drawRoundRect(
-                        color = Color(frame.colorArgb).copy(alpha = 0.36f),
-                        cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
-                        style = Stroke(width = frameBorderStrokePx),
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
-                    tonalElevation = 1.dp,
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .objectMoveModifier(
-                            enabled = allowsObjectMove,
-                            target = CanvasObjectDragTarget.Frame(frame.id),
-                            nodeTopLeftScreen = ScreenPoint(
-                                x = frameLeft + with(density) { 8.dp.toPx() },
-                                y = frameTop + with(density) { 8.dp.toPx() },
-                            ),
-                            canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
-                            canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
-                            autoPanZonePx = autoPanZonePx,
-                            autoPanMaxStepPx = autoPanMaxStepPx,
-                            onObjectDragStart = onObjectDragStart,
-                            onObjectDragDelta = onObjectDragDelta,
-                            onObjectDragEnd = onObjectDragEnd,
-                            onAutoPanDelta = onAutoPanDelta,
-                        )
-                        .pointerInput(allowsObjectTap, frame.id, editState.selectedTool) {
-                            if (!allowsObjectTap) return@pointerInput
-                            detectTapGestures(
-                                onTap = { onFrameTap(frame.id) },
-                            )
+                    .then(
+                        if (isEditActive && allowsObjectTap) {
+                            Modifier.pointerInput(frame.id, editState.selectedTool) {
+                                detectTapGestures(
+                                    onTap = { onFrameTap(frame.id) },
+                                )
+                            }
+                        } else {
+                            Modifier
                         },
-                ) {
-                    Text(
-                        text = frame.title.ifBlank { "Frame" },
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    )
-                }
+                    ),
+            ) {
+            Text(
+                text = frame.title.ifBlank { stringResource(id = R.string.canvas_frame_fallback_title) },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            )
+            }
 
-                if (allowsFrameBorderSelection && selectedFrameIdForResize == frame.id) {
-                    FrameResizeHandles(
-                        frameId = frame.id,
-                        frameWidthPx = widthPx,
-                        frameHeightPx = heightPx,
-                        onFrameResizeStart = onFrameResizeStart,
-                        onFrameResizeDrag = onFrameResizeDrag,
-                        onFrameResizeEnd = onFrameResizeEnd,
-                    )
-                }
+            if (isEditActive && allowsFrameBorderSelection && selectedFrameIdForResize == frame.id) {
+                FrameResizeHandles(
+                    frameId = frame.id,
+                    frameLeftPx = frameLeft,
+                    frameTopPx = frameTop,
+                    frameWidthPx = item.widthPx,
+                    frameHeightPx = item.heightPx,
+                    onFrameResizeStart = onFrameResizeStart,
+                    onFrameResizeDrag = onFrameResizeDrag,
+                    onFrameResizeEnd = onFrameResizeEnd,
+                )
             }
         }
 
@@ -346,7 +418,7 @@ fun CanvasEditLayer(
                                 y = topLeft.y.roundToInt(),
                             )
                         }
-                        .size(
+                        .requiredSize(
                             width = with(density) { rectWidthPx.toDp() },
                             height = with(density) { rectHeightPx.toDp() },
                         )
@@ -421,7 +493,7 @@ fun CanvasEditLayer(
             val noteSizePx = (note.sizeWorld * scale).coerceAtLeast(42f)
             val noteLeftPx = center.x - noteSizePx / 2f
             val noteTopPx = center.y - noteSizePx / 2f
-            val noteText = note.text.ifBlank { "Note" }
+            val noteText = note.text.ifBlank { stringResource(id = R.string.canvas_sticky_fallback_text) }
             val lengthFactor = (STICKY_TEXT_BASE_LENGTH / noteText.length.coerceAtLeast(1).toFloat())
                 .coerceIn(STICKY_TEXT_MIN_LENGTH_FACTOR, STICKY_TEXT_MAX_LENGTH_FACTOR)
             val stickyAreaFactor = (note.sizeWorld / CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD)
@@ -480,25 +552,30 @@ fun CanvasEditLayer(
                         onObjectDragEnd = onObjectDragEnd,
                         onAutoPanDelta = onAutoPanDelta,
                     )
-                    .pointerInput(allowsObjectTap, note.id, noteSizePx, editState.selectedTool) {
-                        if (!allowsObjectTap) return@pointerInput
-                        detectTapGestures(
-                            onTap = { tapOffset ->
-                                val centerTap = if (editState.selectedTool == CanvasEditToolId.Delete) {
-                                    true
-                                } else {
-                                    (tapOffset - Offset(noteSizePx / 2f, noteSizePx / 2f))
-                                        .getDistance() <= noteSizePx * 0.22f
-                                }
-                                onStickyTap(note.id, centerTap)
-                            },
-                            onLongPress = {
-                                if (editState.selectedTool == CanvasEditToolId.Move) {
-                                    onStickyLongPress(note.id)
-                                }
-                            },
-                        )
-                    },
+                    .then(
+                        if (allowsObjectTap) {
+                            Modifier.pointerInput(note.id, noteSizePx, editState.selectedTool) {
+                                detectTapGestures(
+                                    onTap = { tapOffset ->
+                                        val centerTap = if (editState.selectedTool == CanvasEditToolId.Delete) {
+                                            true
+                                        } else {
+                                            (tapOffset - Offset(noteSizePx / 2f, noteSizePx / 2f))
+                                                .getDistance() <= noteSizePx * 0.22f
+                                        }
+                                        onStickyTap(note.id, centerTap)
+                                    },
+                                    onLongPress = {
+                                        if (editState.selectedTool == CanvasEditToolId.Move) {
+                                            onStickyLongPress(note.id)
+                                        }
+                                    },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -540,7 +617,7 @@ fun CanvasEditLayer(
             val textStyle = MaterialTheme.typography.bodyMedium.copy(
                 fontSize = with(density) { textSizePx.toSp() },
             )
-            val textContent = textObject.text.ifBlank { "Text" }
+            val textContent = textObject.text.ifBlank { stringResource(id = R.string.canvas_text_fallback_text) }
             val measured = textMeasurer.measure(
                 text = textContent,
                 style = textStyle,
@@ -575,12 +652,17 @@ fun CanvasEditLayer(
                         onObjectDragEnd = onObjectDragEnd,
                         onAutoPanDelta = onAutoPanDelta,
                     )
-                    .pointerInput(allowsObjectTap, textObject.id) {
-                        if (!allowsObjectTap) return@pointerInput
-                        detectTapGestures(
-                            onTap = { onTextTap(textObject.id) },
-                        )
-                    },
+                    .then(
+                        if (allowsObjectTap) {
+                            Modifier.pointerInput(textObject.id) {
+                                detectTapGestures(
+                                    onTap = { onTextTap(textObject.id) },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
         }
 
@@ -625,6 +707,8 @@ fun CanvasEditLayer(
 @Composable
 private fun FrameResizeHandles(
     frameId: String,
+    frameLeftPx: Float,
+    frameTopPx: Float,
     frameWidthPx: Float,
     frameHeightPx: Float,
     onFrameResizeStart: (id: String, handle: CanvasFrameResizeHandle) -> Unit,
@@ -637,8 +721,10 @@ private fun FrameResizeHandles(
     val placements = frameHandlePlacements(frameWidthPx, frameHeightPx)
 
     placements.forEach { placement ->
-        val handleBoxLeft = placement.centerX - touchSizePx / 2f
-        val handleBoxTop = placement.centerY - touchSizePx / 2f
+        val centerX = frameLeftPx + placement.centerX
+        val centerY = frameTopPx + placement.centerY
+        val handleBoxLeft = centerX - touchSizePx / 2f
+        val handleBoxTop = centerY - touchSizePx / 2f
         Box(
             modifier = Modifier
                 .offset {
@@ -649,23 +735,19 @@ private fun FrameResizeHandles(
                 }
                 .size(with(density) { touchSizePx.toDp() })
                 .zIndex(1.15f)
-                .pointerInput(frameId, placement.handle) {
-                    detectDragGestures(
-                        onDragStart = {
-                            onFrameResizeStart(frameId, placement.handle)
-                        },
-                        onDragEnd = onFrameResizeEnd,
-                        onDragCancel = onFrameResizeEnd,
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            onFrameResizeDrag(
-                                frameId,
-                                placement.handle,
-                                ScreenPoint(dragAmount.x, dragAmount.y),
-                            )
-                        },
-                    )
-                },
+                .singlePointerResizeDrag(
+                    key1 = frameId,
+                    key2 = placement.handle,
+                    onDragStart = { onFrameResizeStart(frameId, placement.handle) },
+                    onDrag = { delta ->
+                        onFrameResizeDrag(
+                            frameId,
+                            placement.handle,
+                            delta,
+                        )
+                    },
+                    onDragEnd = onFrameResizeEnd,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Surface(
@@ -714,22 +796,17 @@ private fun SelectionResizeHandles(
                 }
                 .size(with(density) { touchSizePx.toDp() })
                 .zIndex(1.18f)
-                .pointerInput(placement.handle) {
-                    detectDragGestures(
-                        onDragStart = {
-                            onSelectionResizeStart(placement.handle)
-                        },
-                        onDragEnd = onSelectionResizeEnd,
-                        onDragCancel = onSelectionResizeEnd,
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            onSelectionResizeDrag(
-                                placement.handle,
-                                ScreenPoint(dragAmount.x, dragAmount.y),
-                            )
-                        },
-                    )
-                },
+                .singlePointerResizeDrag(
+                    key1 = placement.handle,
+                    onDragStart = { onSelectionResizeStart(placement.handle) },
+                    onDrag = { delta ->
+                        onSelectionResizeDrag(
+                            placement.handle,
+                            delta,
+                        )
+                    },
+                    onDragEnd = onSelectionResizeEnd,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Surface(
@@ -768,7 +845,7 @@ private fun SelectionDeleteButton(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = Icons.Rounded.Delete,
-                contentDescription = "Delete selected elements",
+                contentDescription = stringResource(id = R.string.canvas_selection_delete_content_description),
                 tint = MaterialTheme.colorScheme.onErrorContainer,
             )
         }
@@ -1085,18 +1162,76 @@ private fun Modifier.objectMoveModifier(
     }
 }
 
-private fun isOnFrameBorder(
-    tapOffset: Offset,
-    frameWidthPx: Float,
-    frameHeightPx: Float,
+private fun Modifier.singlePointerResizeDrag(
+    key1: Any,
+    key2: Any? = null,
+    onDragStart: () -> Unit,
+    onDrag: (ScreenPoint) -> Unit,
+    onDragEnd: () -> Unit,
+): Modifier {
+    return pointerInput(key1, key2) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val pointerId = down.id
+            var dragStarted = false
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.filter { change -> change.pressed }
+                val pointerChange = event.changes.firstOrNull { change -> change.id == pointerId } ?: break
+
+                if (!pointerChange.pressed) {
+                    if (dragStarted) {
+                        onDragEnd()
+                    }
+                    break
+                }
+
+                // Pinch/2-finger gesture should never resize frame handles.
+                if (pressed.size > 1) {
+                    if (dragStarted) {
+                        onDragEnd()
+                    }
+                    while (true) {
+                        val releaseEvent = awaitPointerEvent()
+                        if (releaseEvent.changes.none { change -> change.pressed }) {
+                            break
+                        }
+                    }
+                    break
+                }
+
+                val movedDistancePx = (pointerChange.position - down.position).getDistance()
+                if (!dragStarted && movedDistancePx > viewConfiguration.touchSlop) {
+                    dragStarted = true
+                    onDragStart()
+                }
+                if (dragStarted) {
+                    val delta = pointerChange.position - pointerChange.previousPosition
+                    if (delta != Offset.Zero) {
+                        pointerChange.consume()
+                        onDrag(ScreenPoint(delta.x, delta.y))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun isOnFrameBorderAbsolute(
+    tapX: Float,
+    tapY: Float,
+    frameLeft: Float,
+    frameTop: Float,
+    frameRight: Float,
+    frameBottom: Float,
     hitWidthPx: Float,
 ): Boolean {
-    val left = tapOffset.x
-    val right = frameWidthPx - tapOffset.x
-    val top = tapOffset.y
-    val bottom = frameHeightPx - tapOffset.y
-    if (left < 0f || top < 0f || right < 0f || bottom < 0f) return false
-    return left <= hitWidthPx || right <= hitWidthPx || top <= hitWidthPx || bottom <= hitWidthPx
+    if (tapX < frameLeft || tapX > frameRight || tapY < frameTop || tapY > frameBottom) return false
+    return abs(tapX - frameLeft) <= hitWidthPx ||
+        abs(frameRight - tapX) <= hitWidthPx ||
+        abs(tapY - frameTop) <= hitWidthPx ||
+        abs(frameBottom - tapY) <= hitWidthPx
 }
 
 private fun frameHandlePlacements(
@@ -1226,6 +1361,14 @@ private data class FrameResizeHandlePlacement(
     val handle: CanvasFrameResizeHandle,
     val centerX: Float,
     val centerY: Float,
+)
+
+private data class FrameLayoutState(
+    val frame: CanvasFrameObjectUiState,
+    val widthPx: Float,
+    val heightPx: Float,
+    val leftPx: Float,
+    val topPx: Float,
 )
 
 private const val STICKY_TEXT_BASE_LENGTH = 26f

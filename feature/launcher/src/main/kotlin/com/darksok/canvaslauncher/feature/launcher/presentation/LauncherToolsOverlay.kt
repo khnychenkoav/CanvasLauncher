@@ -2,8 +2,10 @@ package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -213,33 +215,41 @@ fun LauncherToolsOverlay(
                     }
 
                     else -> {
+                        val quickTools = toolsState.tools.filterNot { it.id == LauncherToolId.Search }
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            ToolCircleButton(
+                                onClick = { onToolSelected(LauncherToolId.Search) },
+                                modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+
                             AnimatedVisibility(
                                 visible = toolsState.isExpanded,
-                                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-                                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                                enter = fadeIn() +
+                                    slideInVertically(initialOffsetY = { it / 2 }) +
+                                    expandVertically(expandFrom = Alignment.Bottom),
+                                exit = fadeOut() +
+                                    slideOutVertically(targetOffsetY = { it / 2 }) +
+                                    shrinkVertically(shrinkTowards = Alignment.Bottom),
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.End,
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    toolsState.tools.forEach { tool ->
+                                    quickTools.forEach { tool ->
                                         ToolCircleButton(
                                             onClick = { onToolSelected(tool.id) },
                                             modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
                                         ) {
                                             when (tool.id) {
-                                                LauncherToolId.Search -> {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Search,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    )
-                                                }
-
                                                 LauncherToolId.AppsList -> {
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Rounded.ViewList,
@@ -263,6 +273,8 @@ fun LauncherToolsOverlay(
                                                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                                     )
                                                 }
+
+                                                LauncherToolId.Search -> Unit
                                             }
                                         }
                                     }
@@ -546,11 +558,20 @@ private fun EditPanelContent(
         if (showBrushOrTextSizeControls) {
             val isBrushSize = editState.selectedTool == CanvasEditToolId.Brush
             val valueLabel = if (isBrushSize) {
-                "Brush ${editState.brushWidthWorld.roundToInt()}"
+                stringResource(
+                    id = R.string.edit_brush_size_value,
+                    editState.brushWidthWorld.roundToInt(),
+                )
             } else if (editState.inlineEditor.target is CanvasInlineEditorTarget.EditSticky) {
-                "Sticky text ${editState.textSizeWorld.roundToInt()}"
+                stringResource(
+                    id = R.string.edit_sticky_text_size_value,
+                    editState.textSizeWorld.roundToInt(),
+                )
             } else {
-                "Text ${editState.textSizeWorld.roundToInt()}"
+                stringResource(
+                    id = R.string.edit_text_size_value,
+                    editState.textSizeWorld.roundToInt(),
+                )
             }
             Row(
                 horizontalArrangement = Arrangement.End,
@@ -629,11 +650,13 @@ private fun EditPanelContent(
         }
 
         if (editState.inlineEditor.isVisible) {
-            Text(
-                text = editState.inlineEditor.title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-            )
+            editState.inlineEditor.titleResId?.let { titleResId ->
+                Text(
+                    text = stringResource(id = titleResId),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                )
+            }
             EditInlineEditorPill(
                 state = editState.inlineEditor,
                 maxWidth = maxWidth,
@@ -655,6 +678,9 @@ private fun EditInlineEditorPill(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val placeholderText = state.placeholderResId?.let { placeholderResId ->
+        stringResource(id = placeholderResId)
+    }.orEmpty()
     LaunchedEffect(state.isVisible) {
         if (state.isVisible) {
             focusRequester.requestFocus()
@@ -689,9 +715,9 @@ private fun EditInlineEditorPill(
                     .focusRequester(focusRequester),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (state.value.isBlank()) {
+                        if (state.value.isBlank() && placeholderText.isNotBlank()) {
                             Text(
-                                text = state.placeholder,
+                                text = placeholderText,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
                             )

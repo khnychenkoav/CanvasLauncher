@@ -61,6 +61,13 @@ object WorldScreenTransformer {
     }
 
     fun clampScale(scale: Float): Float {
-        return min(CanvasConstants.Scale.MAX_SCALE, max(CanvasConstants.Scale.MIN_SCALE, scale))
+        val clamped = min(CanvasConstants.Scale.MAX_SCALE, max(CanvasConstants.Scale.MIN_SCALE, scale))
+        return when {
+            clamped >= CanvasConstants.Scale.MAX_SCALE - SCALE_EDGE_SNAP_EPSILON -> CanvasConstants.Scale.MAX_SCALE
+            clamped <= CanvasConstants.Scale.MIN_SCALE + SCALE_EDGE_SNAP_EPSILON -> CanvasConstants.Scale.MIN_SCALE
+            else -> clamped
+        }
     }
+
+    private const val SCALE_EDGE_SNAP_EPSILON = 0.01f
 }

@@ -95,6 +95,27 @@ class MultiPatternLayoutStrategyTest {
         assertThat(height).isGreaterThan(200f)
     }
 
+    @Test
+    fun `icon color mode keeps safe spacing as rectangle fallback`() {
+        val strategy = MultiPatternLayoutStrategy()
+        val apps = List(24) { index ->
+            InstalledApp(
+                packageName = "pkg.color.$index",
+                label = "Color $index",
+            )
+        }
+
+        val result = strategy.layout(
+            existingApps = emptyList(),
+            newApps = apps,
+            center = WorldPoint(0f, 0f),
+            mode = AppLayoutMode.ICON_COLOR,
+        )
+
+        assertThat(result).hasSize(apps.size)
+        assertNoClosePairs(result.map { it.position }, minDistance = 100f)
+    }
+
     private fun assertNoClosePairs(
         points: List<WorldPoint>,
         minDistance: Float,

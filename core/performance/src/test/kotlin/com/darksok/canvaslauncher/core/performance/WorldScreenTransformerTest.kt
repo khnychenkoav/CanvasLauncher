@@ -56,4 +56,22 @@ class WorldScreenTransformerTest {
         assertThat(zoomOut.scale).isAtLeast(0.3f)
         assertThat(zoomIn.scale).isAtMost(2.0f)
     }
+
+    @Test
+    fun `zoom snaps to max scale near upper edge`() {
+        val camera = CameraState(
+            worldCenter = WorldPoint(0f, 0f),
+            scale = 2.0f,
+            viewportWidthPx = 1000,
+            viewportHeightPx = 1000,
+        )
+
+        val updated = WorldScreenTransformer.applyZoom(
+            camera = camera,
+            zoomFactor = 0.999f,
+            focus = ScreenPoint(500f, 500f),
+        )
+
+        assertThat(updated.scale).isEqualTo(2.0f)
+    }
 }

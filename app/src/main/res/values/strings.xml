@@ -19,6 +19,8 @@
     <string name="settings_subtitle">Tune Canvas Launcher to your preference.</string>
     <string name="settings_theme_title">Theme</string>
     <string name="settings_theme_hint">Theme is applied across intro, settings, and launcher screens.</string>
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_hint">Choose app language. Applies to all screens and tools.</string>
     <string name="settings_palette_hint">Choose separate color presets for light and dark appearance.</string>
     <string name="settings_light_palette_title">Light palette</string>
     <string name="settings_dark_palette_title">Dark palette</string>
@@ -33,6 +35,13 @@
     <string name="theme_mode_system">System</string>
     <string name="theme_mode_light">Light</string>
     <string name="theme_mode_dark">Dark</string>
+    <string name="language_system">System</string>
+    <string name="language_english">English</string>
+    <string name="language_russian">Russian</string>
+    <string name="language_spanish">Spanish</string>
+    <string name="language_german">German</string>
+    <string name="language_french">French</string>
+    <string name="language_portuguese_brazil">Portuguese (Brazil)</string>
 
     <string name="light_palette_sky_breeze">Sky Breeze</string>
     <string name="light_palette_mint_garden">Mint Garden</string>
@@ -49,10 +58,36 @@
     <string name="layout_mode_circle">Circle</string>
     <string name="layout_mode_oval">Oval</string>
     <string name="layout_mode_smart_auto">Automatic smart layout</string>
+    <string name="layout_mode_icon_color">Icon color groups</string>
 
     <string name="layout_mode_spiral_description">Places apps along a smooth spiral from the center outward. Great for organic browsing and gradual expansion.</string>
     <string name="layout_mode_rectangle_description">Places apps on a balanced rectangular grid sized to the screen ratio, with consistent spacing and clean rows.</string>
     <string name="layout_mode_circle_description">Places apps on circular rings around the center, keeping equal distance between items for radial navigation.</string>
     <string name="layout_mode_oval_description">Places apps on elliptical rings, giving more horizontal spread while preserving comfortable gaps.</string>
-    <string name="layout_mode_smart_auto_description">Groups apps by category keywords (messengers, media, tools, shopping, games, work) and places each group in its own spaced rectangle.</string>
+    <string name="layout_mode_smart_auto_description">Uses a smarter semantic + package analysis to group apps more accurately across languages, then places each group in a labeled frame.</string>
+    <string name="layout_mode_icon_color_description">Analyzes each icon and groups apps by dominant icon color. Every color group gets its own labeled frame.</string>
+
+    <string name="smart_group_communication">Communication</string>
+    <string name="smart_group_social">Social</string>
+    <string name="smart_group_media">Media</string>
+    <string name="smart_group_games">Games</string>
+    <string name="smart_group_work">Work</string>
+    <string name="smart_group_finance">Finance</string>
+    <string name="smart_group_shopping">Shopping</string>
+    <string name="smart_group_travel">Travel &amp; Maps</string>
+    <string name="smart_group_health">Health</string>
+    <string name="smart_group_education">Education</string>
+    <string name="smart_group_system">System</string>
+    <string name="smart_group_utilities">Utilities</string>
+
+    <string name="icon_color_group_red">Red</string>
+    <string name="icon_color_group_orange">Orange</string>
+    <string name="icon_color_group_yellow">Yellow</string>
+    <string name="icon_color_group_green">Green</string>
+    <string name="icon_color_group_cyan">Cyan</string>
+    <string name="icon_color_group_blue">Blue</string>
+    <string name="icon_color_group_purple">Purple</string>
+    <string name="icon_color_group_pink">Pink</string>
+    <string name="icon_color_group_brown">Brown</string>
+    <string name="icon_color_group_monochrome">Monochrome</string>
 </resources>

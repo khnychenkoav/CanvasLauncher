@@ -1,5 +1,6 @@
 package com.darksok.canvaslauncher.settings
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.provider.Settings
@@ -8,10 +9,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
+import com.darksok.canvaslauncher.i18n.AppLanguage
+import com.darksok.canvaslauncher.i18n.AppLocaleManager
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class SettingsActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocaleManager.wrapContext(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,7 +34,15 @@ class SettingsActivity : ComponentActivity() {
                 onClose = { finish() },
                 onOpenLauncherChooser = { openLauncherChooser() },
                 onOpenPhoneSettings = { openPhoneSettings() },
+                onLanguageSelected = ::onLanguageSelected,
             )
+        }
+    }
+
+    private fun onLanguageSelected(language: AppLanguage) {
+        val changed = AppLocaleManager.updatePreferredLanguage(this, language)
+        if (changed) {
+            recreate()
         }
     }
 

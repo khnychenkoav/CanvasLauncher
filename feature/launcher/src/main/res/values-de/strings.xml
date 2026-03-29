@@ -1,0 +1,32 @@
+<resources>
+    <string name="error_launch_unavailable">Diese App konnte nicht gestartet werden.</string>
+    <string name="search_placeholder">App auf der Leinwand finden</string>
+    <string name="search_launch_top_match">App \"%1$s\" starten</string>
+    <string name="apps_list_title">App-Liste</string>
+    <string name="apps_list_count">%1$d Apps</string>
+    <string name="apps_list_close">Schließen</string>
+    <string name="apps_list_empty">Keine Apps passen zu deiner Suche.</string>
+    <string name="apps_list_search_placeholder">Apps suchen</string>
+    <string name="apps_list_menu_show_canvas">Auf Leinwand anzeigen</string>
+    <string name="apps_list_menu_uninstall">App deinstallieren</string>
+    <string name="apps_list_menu_cancel">Abbrechen</string>
+    <string name="error_uninstall_unavailable">Deinstallationsbildschirm konnte nicht geöffnet werden.</string>
+    <string name="error_web_search_unavailable">Browsersuche konnte nicht geöffnet werden.</string>
+    <string name="edit_clear_custom_elements">Benutzerdefinierte Elemente löschen</string>
+    <string name="edit_inline_title_sticky_note">Notiz</string>
+    <string name="edit_inline_title_text">Text</string>
+    <string name="edit_inline_title_edit_note">Notiz bearbeiten</string>
+    <string name="edit_inline_title_edit_text">Text bearbeiten</string>
+    <string name="edit_inline_title_edit_frame">Rahmen bearbeiten</string>
+    <string name="edit_inline_title_frame_title">Rahmentitel</string>
+    <string name="edit_inline_placeholder_note">Notiz eingeben</string>
+    <string name="edit_inline_placeholder_text">Text eingeben</string>
+    <string name="edit_inline_placeholder_frame_title">Rahmentitel eingeben</string>
+    <string name="edit_brush_size_value">Pinsel %1$d</string>
+    <string name="edit_sticky_text_size_value">Notiztext %1$d</string>
+    <string name="edit_text_size_value">Text %1$d</string>
+    <string name="canvas_frame_fallback_title">Rahmen</string>
+    <string name="canvas_sticky_fallback_text">Notiz</string>
+    <string name="canvas_text_fallback_text">Text</string>
+    <string name="canvas_selection_delete_content_description">Ausgewählte Elemente löschen</string>
+</resources>

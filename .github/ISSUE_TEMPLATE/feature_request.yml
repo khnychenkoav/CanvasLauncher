@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest an improvement for Canvas Launcher
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for sharing your idea.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user problem does this solve?
+      placeholder: As a user, I want ... because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe your ideal behavior/UI
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other options did you evaluate?
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Scope and impact
+      description: Any architecture, UX, or performance implications?
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Validation
+      options:
+        - label: I searched existing issues and did not find a duplicate
+          required: true
