@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -37,6 +38,7 @@ class LruIconCacheGateway @Inject constructor(
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
     private val cacheLock = Any()
+    private val inFlightLoads = ConcurrentHashMap.newKeySet<String>()
 
     private val iconMapFlow = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
     override val icons: StateFlow<Map<String, Bitmap>> = iconMapFlow.asStateFlow()
@@ -52,28 +54,27 @@ class LruIconCacheGateway @Inject constructor(
     override suspend fun preload(packageNames: Collection<String>) {
         val targets = packageNames
             .asSequence()
-            .filter { packageName -> getCached(packageName) == null }
             .distinct()
+            .filter { packageName ->
+                getCached(packageName) == null && inFlightLoads.add(packageName)
+            }
             .toList()
         if (targets.isEmpty()) return
 
-        val loaded = withContext(dispatchersProvider.io) {
-            val result = ConcurrentHashMap<String, Bitmap>()
-            val semaphore = Semaphore(PRELOAD_PARALLELISM)
-            coroutineScope {
-                targets.map { packageName ->
-                    async {
-                        semaphore.withPermit {
-                            loadBitmap(packageName)?.let { bitmap ->
-                                result[packageName] = bitmap
-                            }
-                        }
-                    }
-                }.awaitAll()
+        try {
+            withContext(dispatchersProvider.io) {
+                targets.chunked(PRELOAD_BATCH_SIZE).forEach { batch ->
+                    if (!isActive) return@withContext
+                    val loaded = loadBatch(batch)
+                    cacheLoadedBatch(loaded)
+                    persistBatchToDiskIfMissing(loaded)
+                }
             }
-            result.toMap()
+        } finally {
+            targets.forEach { packageName ->
+                inFlightLoads.remove(packageName)
+            }
         }
-        cacheLoadedBatch(loaded)
     }
 
     override suspend fun invalidate(packageName: String) {
@@ -120,9 +121,25 @@ class LruIconCacheGateway @Inject constructor(
 
         val drawable = runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull()
             ?: return null
-        val bitmap = drawableToBitmap(drawable, CanvasConstants.Icon.CACHE_BITMAP_SIZE_PX)
-        saveToDisk(packageName, bitmap)
-        return bitmap
+        return drawableToBitmap(drawable, CanvasConstants.Icon.CACHE_BITMAP_SIZE_PX)
+    }
+
+    private suspend fun loadBatch(packageNames: List<String>): Map<String, Bitmap> {
+        if (packageNames.isEmpty()) return emptyMap()
+        val result = ConcurrentHashMap<String, Bitmap>()
+        val semaphore = Semaphore(PRELOAD_PARALLELISM)
+        coroutineScope {
+            packageNames.map { packageName ->
+                async {
+                    semaphore.withPermit {
+                        loadBitmap(packageName)?.let { bitmap ->
+                            result[packageName] = bitmap
+                        }
+                    }
+                }
+            }.awaitAll()
+        }
+        return result.toMap()
     }
 
     private fun loadFromDisk(packageName: String): Bitmap? {
@@ -136,6 +153,16 @@ class LruIconCacheGateway @Inject constructor(
         runCatching {
             file.outputStream().use { output ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, output)
+            }
+        }
+    }
+
+    private fun persistBatchToDiskIfMissing(batch: Map<String, Bitmap>) {
+        if (batch.isEmpty()) return
+        batch.forEach { (packageName, bitmap) ->
+            val file = iconFile(packageName)
+            if (!file.exists()) {
+                saveToDisk(packageName, bitmap)
             }
         }
     }
@@ -158,6 +185,7 @@ class LruIconCacheGateway @Inject constructor(
     private companion object {
         const val DISK_CACHE_DIR = "icon_cache_v1"
         const val PNG_QUALITY = 100
-        const val PRELOAD_PARALLELISM = 6
+        const val PRELOAD_PARALLELISM = 4
+        const val PRELOAD_BATCH_SIZE = 20
     }
 }

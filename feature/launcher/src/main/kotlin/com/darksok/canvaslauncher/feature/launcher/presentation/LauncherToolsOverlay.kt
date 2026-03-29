@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.AutoFixOff
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -41,6 +40,7 @@ import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.Icon
@@ -454,7 +454,7 @@ private fun EditPanelContent(
             val editTools = listOf(
                 CanvasEditToolId.Move,
                 CanvasEditToolId.Brush,
-                CanvasEditToolId.Eraser,
+                CanvasEditToolId.Selection,
                 CanvasEditToolId.StickyNote,
                 CanvasEditToolId.Text,
                 CanvasEditToolId.Frame,
@@ -479,8 +479,8 @@ private fun EditPanelContent(
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
-                        CanvasEditToolId.Eraser -> Icon(
-                            imageVector = Icons.Rounded.AutoFixOff,
+                        CanvasEditToolId.Selection -> Icon(
+                            imageVector = Icons.Rounded.SelectAll,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         )

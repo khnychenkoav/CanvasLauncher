@@ -5,7 +5,7 @@ import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 enum class CanvasEditToolId {
     Move,
     Brush,
-    Eraser,
+    Selection,
     StickyNote,
     Text,
     Frame,
@@ -54,6 +54,54 @@ data class CanvasFrameObjectUiState(
     val heightWorld: Float,
     val colorArgb: Int,
 )
+
+data class CanvasFrameDraftUiState(
+    val startCorner: WorldPoint,
+    val endCorner: WorldPoint,
+    val colorArgb: Int,
+)
+
+data class CanvasSelectionDraftUiState(
+    val startCorner: WorldPoint,
+    val endCorner: WorldPoint,
+)
+
+data class CanvasSelectionUiState(
+    val packageNames: Set<String> = emptySet(),
+    val frameIds: Set<String> = emptySet(),
+    val textIds: Set<String> = emptySet(),
+    val strokeIds: Set<String> = emptySet(),
+) {
+    val hasIcons: Boolean
+        get() = packageNames.isNotEmpty()
+
+    val isEmpty: Boolean
+        get() = packageNames.isEmpty() && frameIds.isEmpty() && textIds.isEmpty() && strokeIds.isEmpty()
+}
+
+data class CanvasSelectionBoundsUiState(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val hasIcons: Boolean,
+    val canResizeAndDelete: Boolean,
+) {
+    fun contains(point: WorldPoint): Boolean {
+        return point.x in left..right && point.y in top..bottom
+    }
+}
+
+enum class CanvasFrameResizeHandle {
+    Left,
+    TopLeft,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+}
 
 sealed interface CanvasInlineEditorTarget {
     data object None : CanvasInlineEditorTarget

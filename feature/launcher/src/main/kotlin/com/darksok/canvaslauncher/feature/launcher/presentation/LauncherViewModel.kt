@@ -14,6 +14,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
 import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
+import com.darksok.canvaslauncher.core.model.canvas.CanvasConstants
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.model.ui.DarkThemePalette
@@ -24,6 +25,7 @@ import com.darksok.canvaslauncher.core.packages.events.PackageEventsBus
 import com.darksok.canvaslauncher.core.packages.icon.IconBitmapStore
 import com.darksok.canvaslauncher.core.performance.MiniMapProjector
 import com.darksok.canvaslauncher.core.performance.ViewportCuller
+import com.darksok.canvaslauncher.core.performance.WorldScreenTransformer
 import com.darksok.canvaslauncher.domain.repository.IconCacheGateway
 import com.darksok.canvaslauncher.domain.usecase.HandlePackageAddedUseCase
 import com.darksok.canvaslauncher.domain.usecase.HandlePackageChangedUseCase
@@ -45,16 +47,24 @@ import com.darksok.canvaslauncher.feature.launcher.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Locale
 import javax.inject.Inject
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -96,6 +106,11 @@ class LauncherViewModel @Inject constructor(
     private val editTextSizeWorld = MutableStateFlow(CanvasEditDefaults.DEFAULT_TEXT_SIZE_WORLD)
     private val editInlineEditor = MutableStateFlow(CanvasInlineEditorUiState())
     private val frameObjects = MutableStateFlow<List<CanvasFrameObjectUiState>>(emptyList())
+    private val frameDraft = MutableStateFlow<CanvasFrameDraftUiState?>(null)
+    private val selectedFrameIdForResize = MutableStateFlow<String?>(null)
+    private val selectionDraft = MutableStateFlow<CanvasSelectionDraftUiState?>(null)
+    private val selectedObjects = MutableStateFlow(CanvasSelectionUiState())
+    private val selectionBounds = MutableStateFlow<CanvasSelectionBoundsUiState?>(null)
     private val stickyNotes = MutableStateFlow<List<CanvasStickyNoteUiState>>(emptyList())
     private val textObjects = MutableStateFlow<List<CanvasTextObjectUiState>>(emptyList())
     private val completedStrokes = MutableStateFlow<List<CanvasStrokeUiState>>(emptyList())
@@ -106,7 +121,11 @@ class LauncherViewModel @Inject constructor(
     private var cameraSnapshotBeforeSearch: CameraState? = null
     private var nextCanvasObjectId: Long = 0L
     private var activeObjectDrag: CanvasObjectDragTarget? = null
+    private var activeFrameResizeSession: FrameResizeSession? = null
+    private var activeSelectionResizeSession: SelectionResizeSession? = null
     private var transientIconSnapDragActive: Boolean = false
+    private var cameraFlightJob: Job? = null
+    private var iconWarmupJob: Job? = null
 
     private val themeMode = observeThemeModeUseCase().stateIn(
         scope = viewModelScope,
@@ -241,6 +260,23 @@ class LauncherViewModel @Inject constructor(
         initialValue = SearchPresentationState(),
     )
 
+    private val appsListItemsState = combine(
+        appsListEntries,
+        iconBitmapStore.icons,
+    ) { entries, icons ->
+        entries.map { entry ->
+            AppsListItemUiState(
+                packageName = entry.packageName,
+                label = entry.label,
+                icon = icons[entry.packageName],
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
     val messages = transientMessageRes.asSharedFlow()
 
     private val renderState = combine(
@@ -290,15 +326,43 @@ class LauncherViewModel @Inject constructor(
         initialValue = emptyList(),
     )
 
+    private val frameDecorationsState = combine(
+        combine(
+            frameObjects,
+            frameDraft,
+            selectedFrameIdForResize,
+            selectionDraft,
+            selectionBounds,
+        ) { frames, currentFrameDraft, selectedFrameId, selectionDraftState, selectionBoundsState ->
+            FrameDecorationsState(
+                frames = frames,
+                frameDraft = currentFrameDraft,
+                selectedFrameIdForResize = selectedFrameId,
+                selectionDraft = selectionDraftState,
+                selectionBounds = selectionBoundsState,
+            )
+        },
+        selectedObjects,
+    ) { frameDecorations, selectedItems ->
+        frameDecorations.copy(
+            hasActiveSelection = !selectedItems.isEmpty,
+        )
+    }
+
     private val canvasDecorationsState = combine(
-        frameObjects,
+        frameDecorationsState,
         stickyNotes,
         textObjects,
         visibleStrokes,
         snapGuides,
-    ) { frames, notes, texts, strokes, guides ->
+    ) { frameDecorations, notes, texts, strokes, guides ->
         CanvasDecorationsState(
-            frames = frames,
+            frames = frameDecorations.frames,
+            frameDraft = frameDecorations.frameDraft,
+            selectedFrameIdForResize = frameDecorations.selectedFrameIdForResize,
+            selectionDraft = frameDecorations.selectionDraft,
+            selectionBounds = frameDecorations.selectionBounds,
+            hasActiveSelection = frameDecorations.hasActiveSelection,
             notes = notes,
             texts = texts,
             strokes = strokes,
@@ -309,8 +373,9 @@ class LauncherViewModel @Inject constructor(
     val uiState = combine(
         themedRenderState,
         searchPresentation,
+        appsListItemsState,
         canvasDecorationsState,
-    ) { themed, search, decorations ->
+    ) { themed, search, appsListItems, decorations ->
         val render = themed.render
         val withCommittedPositions = DragPositionOverrides.apply(
             apps = render.apps,
@@ -321,13 +386,6 @@ class LauncherViewModel @Inject constructor(
             apps = effectiveApps,
             camera = render.camera,
         )
-        val appsListItems = search.appsListEntries.map { entry ->
-            AppsListItemUiState(
-                packageName = entry.packageName,
-                label = entry.label,
-                icon = render.icons[entry.packageName],
-            )
-        }
 
         LauncherUiState(
             cameraState = render.camera,
@@ -358,6 +416,11 @@ class LauncherViewModel @Inject constructor(
                 emptyList()
             },
             frames = decorations.frames,
+            frameDraft = decorations.frameDraft,
+            selectedFrameIdForResize = decorations.selectedFrameIdForResize,
+            selectionDraft = decorations.selectionDraft,
+            selectionBounds = decorations.selectionBounds,
+            hasActiveSelection = decorations.hasActiveSelection,
             strokes = decorations.strokes,
             stickyNotes = decorations.notes,
             textObjects = decorations.texts,
@@ -390,8 +453,11 @@ class LauncherViewModel @Inject constructor(
                         persistedApps = apps,
                     )
                 }
+                pruneSelectionToExistingObjects()
+                scheduleIconWarmup(apps)
             }
         }
+        observeViewportIconWarmup()
         observeSystemPackageEvents()
         initialSync()
     }
@@ -406,6 +472,7 @@ class LauncherViewModel @Inject constructor(
         focusPx: ScreenPoint,
     ) {
         clearSpotlight()
+        cancelCameraFlightAnimation()
         gestureHandler.onTransform(panDeltaPx, zoomFactor, focusPx)
     }
 
@@ -423,6 +490,7 @@ class LauncherViewModel @Inject constructor(
 
     fun onAppDragStart(packageName: String) {
         clearSpotlight()
+        cancelCameraFlightAnimation()
         val app = appsState.value.firstOrNull { it.packageName == packageName } ?: return
         transientIconSnapDragActive = activeTool.value != LauncherToolId.Edit
         snapGuides.value = emptyList()
@@ -466,6 +534,9 @@ class LauncherViewModel @Inject constructor(
         transientIconSnapDragActive = false
         activeObjectDrag = null
         dragDropController.finishDrag()
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching {
                 updateAppPositionUseCase(packageName, final.worldPosition)
@@ -505,11 +576,20 @@ class LauncherViewModel @Inject constructor(
     fun onEditToolSelected(tool: CanvasEditToolId) {
         if (activeTool.value != LauncherToolId.Edit) return
         editSelectedTool.value = tool
+        cancelCameraFlightAnimation()
         if (tool != CanvasEditToolId.Brush) {
             activeStroke.value = null
         }
         if (tool != CanvasEditToolId.Move) {
             activeObjectDrag = null
+            activeFrameResizeSession = null
+            selectedFrameIdForResize.value = null
+        }
+        if (tool != CanvasEditToolId.Selection) {
+            clearSelection()
+        }
+        if (tool != CanvasEditToolId.Frame) {
+            frameDraft.value = null
         }
         if (tool != CanvasEditToolId.StickyNote &&
             tool != CanvasEditToolId.Text &&
@@ -672,28 +752,241 @@ class LauncherViewModel @Inject constructor(
             }
 
             CanvasEditToolId.Frame -> {
-                val frameId = nextCanvasId(prefix = "frame")
-                val frame = CanvasFrameObjectUiState(
-                    id = frameId,
-                    title = "",
+                frameDraft.value = null
+                createFrame(
                     center = worldPoint,
                     widthWorld = CanvasEditDefaults.DEFAULT_FRAME_WIDTH_WORLD,
                     heightWorld = CanvasEditDefaults.DEFAULT_FRAME_HEIGHT_WORLD,
-                    colorArgb = editSelectedColorArgb.value,
-                )
-                frameObjects.update { frames -> frames + frame }
-                persistFrameObject(frame)
-                openInlineEditor(
-                    title = "Frame title",
-                    placeholder = "Type frame title",
-                    value = "",
-                    target = CanvasInlineEditorTarget.EditFrame(frameId),
+                    openEditor = true,
                     isDraft = true,
                 )
             }
 
             else -> Unit
         }
+    }
+
+    fun onEditFrameDragStart(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Frame) return
+        frameDraft.value = CanvasFrameDraftUiState(
+            startCorner = worldPoint,
+            endCorner = worldPoint,
+            colorArgb = editSelectedColorArgb.value,
+        )
+    }
+
+    fun onEditFrameDragUpdate(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Frame) return
+        val draft = frameDraft.value ?: return
+        frameDraft.value = draft.copy(endCorner = worldPoint)
+    }
+
+    fun onEditFrameDragEnd() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Frame) return
+        val draft = frameDraft.value ?: return
+        val left = min(draft.startCorner.x, draft.endCorner.x)
+        val right = max(draft.startCorner.x, draft.endCorner.x)
+        val top = min(draft.startCorner.y, draft.endCorner.y)
+        val bottom = max(draft.startCorner.y, draft.endCorner.y)
+        val width = (right - left).coerceAtLeast(FRAME_RESIZE_MIN_WIDTH_WORLD)
+        val height = (bottom - top).coerceAtLeast(FRAME_RESIZE_MIN_HEIGHT_WORLD)
+        val center = WorldPoint(
+            x = (left + right) / 2f,
+            y = (top + bottom) / 2f,
+        )
+        frameDraft.value = null
+        createFrame(
+            center = center,
+            widthWorld = width,
+            heightWorld = height,
+            openEditor = true,
+            isDraft = true,
+        )
+    }
+
+    fun onEditSelectionDragStart(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        if (!selectedObjects.value.isEmpty) return
+        cancelCameraFlightAnimation()
+        activeObjectDrag = null
+        activeFrameResizeSession = null
+        activeSelectionResizeSession = null
+        selectedFrameIdForResize.value = null
+        snapGuides.value = emptyList()
+        selectionDraft.value = CanvasSelectionDraftUiState(
+            startCorner = worldPoint,
+            endCorner = worldPoint,
+        )
+    }
+
+    fun onEditSelectionDragUpdate(worldPoint: WorldPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        val draft = selectionDraft.value ?: return
+        selectionDraft.value = draft.copy(endCorner = worldPoint)
+    }
+
+    fun onEditSelectionDragEnd() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        val draft = selectionDraft.value ?: return
+        selectionDraft.value = null
+        val rawBounds = worldBoundsOfCorners(draft.startCorner, draft.endCorner)
+        val hasArea = rawBounds.width >= SELECTION_MIN_SIZE_WORLD &&
+            rawBounds.height >= SELECTION_MIN_SIZE_WORLD
+        if (!hasArea) {
+            clearSelection()
+            return
+        }
+        val selection = selectObjectsFullyInside(rawBounds)
+        selectedObjects.value = selection
+        selectionBounds.value = computeSelectionBounds(selection)
+        activeSelectionResizeSession = null
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditSelectionClearTap() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        clearSelection()
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditSelectionMoveDelta(delta: ScreenPoint) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        val selection = selectedObjects.value
+        if (selection.isEmpty) return
+        val scale = viewportController.cameraState.value.scale
+        if (scale <= 0f) return
+        val worldDeltaX = delta.x / scale
+        val worldDeltaY = delta.y / scale
+        if (worldDeltaX == 0f && worldDeltaY == 0f) return
+        applySelectionTranslation(selection, worldDeltaX, worldDeltaY)
+        selectionBounds.value = selectionBounds.value?.offset(worldDeltaX, worldDeltaY)
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditSelectionMoveEnd() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        persistSelectionTransform(includeIcons = true)
+        selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+    }
+
+    fun onEditSelectionResizeStart(handle: CanvasFrameResizeHandle) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        val selection = selectedObjects.value
+        val bounds = selectionBounds.value ?: return
+        if (selection.isEmpty || !bounds.canResizeAndDelete) return
+        activeSelectionResizeSession = SelectionResizeSession(
+            handle = handle,
+            selection = selection,
+            initialBounds = WorldBounds(
+                left = bounds.left,
+                top = bounds.top,
+                right = bounds.right,
+                bottom = bounds.bottom,
+            ),
+            initialFrames = frameObjects.value
+                .asSequence()
+                .filter { it.id in selection.frameIds }
+                .associateBy { it.id },
+            initialTexts = textObjects.value
+                .asSequence()
+                .filter { it.id in selection.textIds }
+                .associateBy { it.id },
+            initialStrokes = completedStrokes.value
+                .asSequence()
+                .filter { it.id in selection.strokeIds }
+                .associateBy { it.id },
+        )
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditSelectionResizeDrag(
+        handle: CanvasFrameResizeHandle,
+        delta: ScreenPoint,
+    ) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        val session = activeSelectionResizeSession ?: return
+        if (session.handle != handle) return
+        val scale = viewportController.cameraState.value.scale
+        if (scale <= 0f) return
+
+        session.accumulatedDeltaXWorld += delta.x / scale
+        session.accumulatedDeltaYWorld += delta.y / scale
+        val resizedBounds = session.initialBounds.resizeByHandle(
+            handle = handle,
+            deltaXWorld = session.accumulatedDeltaXWorld,
+            deltaYWorld = session.accumulatedDeltaYWorld,
+            minWidthWorld = SELECTION_RESIZE_MIN_WIDTH_WORLD,
+            minHeightWorld = SELECTION_RESIZE_MIN_HEIGHT_WORLD,
+        )
+        val scaleX = (resizedBounds.width / session.initialBounds.width).coerceAtLeast(0.001f)
+        val scaleY = (resizedBounds.height / session.initialBounds.height).coerceAtLeast(0.001f)
+
+        frameObjects.update { frames ->
+            frames.map { current ->
+                val initial = session.initialFrames[current.id] ?: return@map current
+                transformFrameByBounds(
+                    frame = initial,
+                    source = session.initialBounds,
+                    target = resizedBounds,
+                )
+            }
+        }
+        textObjects.update { texts ->
+            texts.map { current ->
+                val initial = session.initialTexts[current.id] ?: return@map current
+                transformTextByBounds(
+                    text = initial,
+                    source = session.initialBounds,
+                    target = resizedBounds,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                )
+            }
+        }
+        completedStrokes.update { strokes ->
+            strokes.map { current ->
+                val initial = session.initialStrokes[current.id] ?: return@map current
+                transformStrokeByBounds(
+                    stroke = initial,
+                    source = session.initialBounds,
+                    target = resizedBounds,
+                )
+            }
+        }
+        selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        snapGuides.value = emptyList()
+    }
+
+    fun onEditSelectionResizeEnd() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) {
+            activeSelectionResizeSession = null
+            return
+        }
+        persistSelectionTransform(includeIcons = false)
+        selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        activeSelectionResizeSession = null
+    }
+
+    fun onEditSelectionDeleteTap() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        deleteSelectionWithoutIcons()
+    }
+
+    fun onEditAutoPanDelta(delta: ScreenPoint) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        if (delta.x == 0f && delta.y == 0f) return
+        val camera = viewportController.cameraState.value
+        gestureHandler.onTransform(
+            panDeltaPx = ScreenPoint(
+                x = -delta.x,
+                y = -delta.y,
+            ),
+            zoomFactor = 1f,
+            focusPx = ScreenPoint(
+                x = camera.viewportWidthPx / 2f,
+                y = camera.viewportHeightPx / 2f,
+            ),
+        )
     }
 
     fun onEditBrushStart(worldPoint: WorldPoint) {
@@ -727,7 +1020,15 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditEraseAt(worldPoint: WorldPoint) {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Eraser) return
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Delete) return
+        val currentSelectionBounds = selectionBounds.value
+        if (currentSelectionBounds != null &&
+            currentSelectionBounds.canResizeAndDelete &&
+            currentSelectionBounds.contains(worldPoint)
+        ) {
+            deleteSelectionWithoutIcons()
+            return
+        }
         val radiusWorld = ERASER_RADIUS_SCREEN_PX / viewportController.cameraState.value.scale
         val removedStrokeIds = mutableListOf<String>()
         completedStrokes.update { strokes ->
@@ -752,6 +1053,7 @@ class LauncherViewModel @Inject constructor(
                         }
                 }
             }
+            pruneSelectionToExistingObjects()
         }
     }
 
@@ -848,9 +1150,74 @@ class LauncherViewModel @Inject constructor(
         )
     }
 
+    fun onEditFrameBorderTap(frameId: String) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (frameObjects.value.none { it.id == frameId }) return
+        selectedFrameIdForResize.value = frameId
+    }
+
+    fun onEditFrameResizeStart(
+        frameId: String,
+        handle: CanvasFrameResizeHandle,
+    ) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        if (frameObjects.value.none { it.id == frameId }) return
+        selectedFrameIdForResize.value = frameId
+        activeFrameResizeSession = FrameResizeSession(
+            frameId = frameId,
+            handle = handle,
+        )
+    }
+
+    fun onEditFrameResizeDrag(
+        frameId: String,
+        handle: CanvasFrameResizeHandle,
+        delta: ScreenPoint,
+    ) {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        val session = activeFrameResizeSession ?: return
+        if (session.frameId != frameId || session.handle != handle) return
+        val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
+        val scale = viewportController.cameraState.value.scale
+        if (scale <= 0f) return
+        val resized = frame.resizeByHandleDrag(
+            handle = handle,
+            deltaXWorld = delta.x / scale,
+            deltaYWorld = delta.y / scale,
+            minWidthWorld = FRAME_RESIZE_MIN_WIDTH_WORLD,
+            minHeightWorld = FRAME_RESIZE_MIN_HEIGHT_WORLD,
+        )
+        frameObjects.update { frames ->
+            frames.map { current ->
+                if (current.id == frameId) resized else current
+            }
+        }
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
+    }
+
+    fun onEditFrameResizeEnd() {
+        val session = activeFrameResizeSession ?: return
+        val updated = frameObjects.value.firstOrNull { it.id == session.frameId } ?: run {
+            activeFrameResizeSession = null
+            return
+        }
+        persistFrameObject(updated)
+        activeFrameResizeSession = null
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
+    }
+
     fun onEditObjectDragStart(target: CanvasObjectDragTarget) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        cancelCameraFlightAnimation()
         activeObjectDrag = target
+        activeFrameResizeSession = null
+        if (target is CanvasObjectDragTarget.Frame) {
+            selectedFrameIdForResize.value = target.id
+        }
         snapGuides.value = emptyList()
     }
 
@@ -932,12 +1299,18 @@ class LauncherViewModel @Inject constructor(
                 snapGuides.value = snap.guides
             }
         }
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
     }
 
     fun onEditObjectDragEnd() {
         persistDraggedObject(activeObjectDrag)
         activeObjectDrag = null
         snapGuides.value = emptyList()
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
     }
 
     fun onEditInlineEditorValueChanged(value: String) {
@@ -1115,12 +1488,19 @@ class LauncherViewModel @Inject constructor(
     fun onEditClearCustomElements() {
         if (activeTool.value != LauncherToolId.Edit) return
         frameObjects.value = emptyList()
+        frameDraft.value = null
+        selectedFrameIdForResize.value = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
         stickyNotes.value = emptyList()
         textObjects.value = emptyList()
         completedStrokes.value = emptyList()
         activeStroke.value = null
         snapGuides.value = emptyList()
         activeObjectDrag = null
+        activeFrameResizeSession = null
+        activeSelectionResizeSession = null
         editInlineEditor.value = CanvasInlineEditorUiState()
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching { canvasEditDao.clearAllCustomElements() }
@@ -1138,6 +1518,7 @@ class LauncherViewModel @Inject constructor(
 
     fun onSearchQueryChanged(query: String) {
         clearSpotlight()
+        cancelCameraFlightAnimation()
         searchQuery.value = query
         showSearchLaunchAction.value = false
     }
@@ -1194,6 +1575,7 @@ class LauncherViewModel @Inject constructor(
 
     private fun activateSearchTool() {
         if (activeTool.value == LauncherToolId.Search) return
+        cancelCameraFlightAnimation()
         if (activeTool.value == LauncherToolId.AppsList) {
             closeAppsListTool()
         } else if (activeTool.value == LauncherToolId.Edit) {
@@ -1209,6 +1591,7 @@ class LauncherViewModel @Inject constructor(
 
     private fun activateAppsListTool() {
         if (activeTool.value == LauncherToolId.AppsList) return
+        cancelCameraFlightAnimation()
         if (activeTool.value == LauncherToolId.Search) {
             closeSearchTool(restoreViewport = true)
         } else if (activeTool.value == LauncherToolId.Edit) {
@@ -1223,6 +1606,7 @@ class LauncherViewModel @Inject constructor(
 
     private fun activateEditTool() {
         if (activeTool.value == LauncherToolId.Edit) return
+        cancelCameraFlightAnimation()
         when (activeTool.value) {
             LauncherToolId.Search -> closeSearchTool(restoreViewport = true)
             LauncherToolId.AppsList -> closeAppsListTool()
@@ -1234,10 +1618,18 @@ class LauncherViewModel @Inject constructor(
         clearSpotlight()
         snapGuides.value = emptyList()
         activeObjectDrag = null
+        activeFrameResizeSession = null
+        activeSelectionResizeSession = null
+        selectedFrameIdForResize.value = null
+        frameDraft.value = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
         transientIconSnapDragActive = false
     }
 
     private fun closeSearchTool(restoreViewport: Boolean) {
+        cancelCameraFlightAnimation()
         if (activeTool.value == LauncherToolId.Search && restoreViewport) {
             cameraSnapshotBeforeSearch?.let { snapshot ->
                 val currentCamera = viewportController.cameraState.value
@@ -1268,12 +1660,20 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value == LauncherToolId.Edit) {
             activeTool.value = null
         }
+        cancelCameraFlightAnimation()
         isToolsExpanded.value = false
         editSelectedTool.value = CanvasEditToolId.Move
         activeStroke.value = null
         editInlineEditor.value = CanvasInlineEditorUiState()
         snapGuides.value = emptyList()
         activeObjectDrag = null
+        activeFrameResizeSession = null
+        activeSelectionResizeSession = null
+        selectedFrameIdForResize.value = null
+        frameDraft.value = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
         transientIconSnapDragActive = false
     }
 
@@ -1310,16 +1710,113 @@ class LauncherViewModel @Inject constructor(
             -desiredLiftPx.coerceIn(SEARCH_MIN_FOCUS_LIFT_PX, maxLiftPx)
         }
         val targetScale = max(camera.scale, SEARCH_MIN_FOCUS_SCALE)
-        if (targetScale > camera.scale) {
-            val focusPoint = ScreenPoint(
-                x = camera.viewportWidthPx / 2f,
-                y = camera.viewportHeightPx / 2f + offsetY,
+        val targetCenter = WorldPoint(
+            x = app.position.x,
+            y = app.position.y - (offsetY / targetScale),
+        )
+        val targetCamera = camera.copy(
+            worldCenter = targetCenter,
+            scale = targetScale,
+        )
+        animateCameraFlight(targetCamera)
+    }
+
+    private fun createFrame(
+        center: WorldPoint,
+        widthWorld: Float,
+        heightWorld: Float,
+        openEditor: Boolean,
+        isDraft: Boolean,
+    ) {
+        val frameId = nextCanvasId(prefix = "frame")
+        val frame = CanvasFrameObjectUiState(
+            id = frameId,
+            title = "",
+            center = center,
+            widthWorld = widthWorld.coerceAtLeast(FRAME_RESIZE_MIN_WIDTH_WORLD),
+            heightWorld = heightWorld.coerceAtLeast(FRAME_RESIZE_MIN_HEIGHT_WORLD),
+            colorArgb = editSelectedColorArgb.value,
+        )
+        frameObjects.update { frames -> frames + frame }
+        persistFrameObject(frame)
+        if (openEditor) {
+            openInlineEditor(
+                title = "Frame title",
+                placeholder = "Type frame title",
+                value = "",
+                target = CanvasInlineEditorTarget.EditFrame(frameId),
+                isDraft = isDraft,
             )
-            viewportController.zoomBy(targetScale / camera.scale, focusPoint)
         }
-        viewportController.centerOn(
-            worldPoint = app.position,
-            screenOffsetPx = ScreenPoint(0f, offsetY),
+    }
+
+    private fun animateCameraFlight(targetCamera: CameraState) {
+        cancelCameraFlightAnimation()
+        val start = viewportController.cameraState.value
+        val target = targetCamera.withCurrentViewport(start)
+        val centerDistance = distance(start.worldCenter, target.worldCenter)
+        val scaleDistance = abs(start.scale - target.scale)
+        if (centerDistance < SEARCH_FLIGHT_MIN_DISTANCE_WORLD && scaleDistance < SEARCH_FLIGHT_MIN_SCALE_DELTA) {
+            viewportController.setCamera(target)
+            return
+        }
+        val midCenter = lerp(start.worldCenter, target.worldCenter, SEARCH_FLIGHT_MID_CENTER_RATIO)
+        val peakScale = WorldScreenTransformer.clampScale(
+            max(start.scale, target.scale) * SEARCH_FLIGHT_ZOOM_MULTIPLIER,
+        )
+        cameraFlightJob = viewModelScope.launch(dispatchersProvider.main) {
+            var flightStartNanos: Long? = null
+            while (isActive) {
+                val frameNanos = awaitFrame()
+                val startNanos = flightStartNanos ?: frameNanos.also { flightStartNanos = it }
+                val elapsedMs = ((frameNanos - startNanos).coerceAtLeast(0L)) / 1_000_000f
+                val progress = (elapsedMs / SEARCH_FLIGHT_DURATION_MS.toFloat()).coerceIn(0f, 1f)
+                val flightCamera = interpolateFlightCamera(
+                    start = start,
+                    midCenter = midCenter,
+                    target = target,
+                    peakScale = peakScale,
+                    progress = progress,
+                )
+                val current = viewportController.cameraState.value
+                viewportController.setCamera(flightCamera.withCurrentViewport(current))
+                if (progress >= 1f) {
+                    break
+                }
+            }
+            cameraFlightJob = null
+        }
+    }
+
+    private fun cancelCameraFlightAnimation() {
+        cameraFlightJob?.cancel()
+        cameraFlightJob = null
+    }
+
+    private fun interpolateFlightCamera(
+        start: CameraState,
+        midCenter: WorldPoint,
+        target: CameraState,
+        peakScale: Float,
+        progress: Float,
+    ): CameraState {
+        val center: WorldPoint
+        val scale: Float
+        if (progress <= SEARCH_FLIGHT_MID_PROGRESS) {
+            val local = (progress / SEARCH_FLIGHT_MID_PROGRESS).coerceIn(0f, 1f)
+            val eased = easeOutCubic(local)
+            center = lerp(start.worldCenter, midCenter, eased)
+            scale = lerp(start.scale, peakScale, eased)
+        } else {
+            val local = ((progress - SEARCH_FLIGHT_MID_PROGRESS) / (1f - SEARCH_FLIGHT_MID_PROGRESS))
+                .coerceIn(0f, 1f)
+            val eased = easeInOutCubic(local)
+            center = lerp(midCenter, target.worldCenter, eased)
+            scale = lerp(peakScale, target.scale, eased)
+        }
+        return target.copy(
+            worldCenter = center,
+            scale = scale,
         )
     }
 
@@ -1366,6 +1863,353 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    private fun clearSelection() {
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
+        selectionDraft.value = null
+        activeSelectionResizeSession = null
+    }
+
+    private fun selectObjectsFullyInside(bounds: WorldBounds): CanvasSelectionUiState {
+        val scale = viewportController.cameraState.value.scale
+        val iconHalfSizeWorld = iconWorldSizeForScale(scale) / 2f
+        val appPositions = currentAppPositionsByPackage()
+        val selectedPackages = appPositions
+            .asSequence()
+            .filter { (_, position) ->
+                val iconBounds = WorldBounds(
+                    left = position.x - iconHalfSizeWorld,
+                    top = position.y - iconHalfSizeWorld,
+                    right = position.x + iconHalfSizeWorld,
+                    bottom = position.y + iconHalfSizeWorld,
+                )
+                bounds.containsRect(iconBounds)
+            }
+            .map { (packageName, _) -> packageName }
+            .toSet()
+        val selectedFrames = frameObjects.value
+            .asSequence()
+            .filter { frame -> bounds.containsRect(frame.worldBounds()) }
+            .map { frame -> frame.id }
+            .toSet()
+        val selectedTexts = textObjects.value
+            .asSequence()
+            .filter { text -> bounds.containsRect(text.estimatedWorldBounds()) }
+            .map { text -> text.id }
+            .toSet()
+        val selectedStrokes = completedStrokes.value
+            .asSequence()
+            .filter { stroke ->
+                stroke.points.isNotEmpty() && stroke.points.all { point -> bounds.contains(point) }
+            }
+            .map { stroke -> stroke.id }
+            .toSet()
+        return CanvasSelectionUiState(
+            packageNames = selectedPackages,
+            frameIds = selectedFrames,
+            textIds = selectedTexts,
+            strokeIds = selectedStrokes,
+        )
+    }
+
+    private fun computeSelectionBounds(selection: CanvasSelectionUiState): CanvasSelectionBoundsUiState? {
+        if (selection.isEmpty) return null
+        val appPositions = currentAppPositionsByPackage()
+        val scale = viewportController.cameraState.value.scale
+        val iconHalfSizeWorld = iconWorldSizeForScale(scale) / 2f
+        val bounds = buildList {
+            selection.packageNames.forEach { packageName ->
+                val position = appPositions[packageName] ?: return@forEach
+                add(
+                    WorldBounds(
+                        left = position.x - iconHalfSizeWorld,
+                        top = position.y - iconHalfSizeWorld,
+                        right = position.x + iconHalfSizeWorld,
+                        bottom = position.y + iconHalfSizeWorld,
+                    ),
+                )
+            }
+            frameObjects.value
+                .asSequence()
+                .filter { it.id in selection.frameIds }
+                .forEach { add(it.worldBounds()) }
+            textObjects.value
+                .asSequence()
+                .filter { it.id in selection.textIds }
+                .forEach { add(it.estimatedWorldBounds()) }
+            completedStrokes.value
+                .asSequence()
+                .filter { it.id in selection.strokeIds }
+                .mapNotNull { it.worldBoundsWithStrokeWidth() }
+                .forEach { add(it) }
+        }
+        if (bounds.isEmpty()) return null
+        val left = bounds.minOf { it.left }
+        val top = bounds.minOf { it.top }
+        val right = bounds.maxOf { it.right }
+        val bottom = bounds.maxOf { it.bottom }
+        val hasIcons = selection.hasIcons
+        return CanvasSelectionBoundsUiState(
+            left = left,
+            top = top,
+            right = right,
+            bottom = bottom,
+            hasIcons = hasIcons,
+            canResizeAndDelete = !hasIcons && !selection.isEmpty,
+        )
+    }
+
+    private fun applySelectionTranslation(
+        selection: CanvasSelectionUiState,
+        deltaXWorld: Float,
+        deltaYWorld: Float,
+    ) {
+        if (selection.packageNames.isNotEmpty()) {
+            val appPositions = currentAppPositionsByPackage()
+            committedDragPositions.update { overrides ->
+                val next = overrides.toMutableMap()
+                selection.packageNames.forEach { packageName ->
+                    val current = next[packageName] ?: appPositions[packageName] ?: return@forEach
+                    next[packageName] = WorldPoint(
+                        x = current.x + deltaXWorld,
+                        y = current.y + deltaYWorld,
+                    )
+                }
+                next
+            }
+        }
+        if (selection.frameIds.isNotEmpty()) {
+            frameObjects.update { frames ->
+                frames.map { current ->
+                    if (current.id !in selection.frameIds) {
+                        current
+                    } else {
+                        current.copy(
+                            center = WorldPoint(
+                                x = current.center.x + deltaXWorld,
+                                y = current.center.y + deltaYWorld,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (selection.textIds.isNotEmpty()) {
+            textObjects.update { texts ->
+                texts.map { current ->
+                    if (current.id !in selection.textIds) {
+                        current
+                    } else {
+                        current.copy(
+                            position = WorldPoint(
+                                x = current.position.x + deltaXWorld,
+                                y = current.position.y + deltaYWorld,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (selection.strokeIds.isNotEmpty()) {
+            completedStrokes.update { strokes ->
+                strokes.map { current ->
+                    if (current.id !in selection.strokeIds) {
+                        current
+                    } else {
+                        current.copy(
+                            points = current.points.map { point ->
+                                WorldPoint(
+                                    x = point.x + deltaXWorld,
+                                    y = point.y + deltaYWorld,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun persistSelectionTransform(includeIcons: Boolean) {
+        val selection = selectedObjects.value
+        if (selection.isEmpty) return
+        if (selection.frameIds.isNotEmpty()) {
+            frameObjects.value
+                .asSequence()
+                .filter { it.id in selection.frameIds }
+                .forEach(::persistFrameObject)
+        }
+        if (selection.textIds.isNotEmpty()) {
+            textObjects.value
+                .asSequence()
+                .filter { it.id in selection.textIds }
+                .forEach(::persistTextObject)
+        }
+        if (selection.strokeIds.isNotEmpty()) {
+            completedStrokes.value
+                .asSequence()
+                .filter { it.id in selection.strokeIds }
+                .forEach(::persistStroke)
+        }
+        if (includeIcons && selection.packageNames.isNotEmpty()) {
+            val appPositions = currentAppPositionsByPackage()
+            viewModelScope.launch(dispatchersProvider.io) {
+                selection.packageNames.forEach { packageName ->
+                    val position = appPositions[packageName] ?: return@forEach
+                    runCatching {
+                        updateAppPositionUseCase(packageName, position)
+                    }.onFailure { throwable ->
+                        Log.w(TAG, "Failed to persist selection icon position for $packageName", throwable)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun deleteSelectionWithoutIcons() {
+        val selection = selectedObjects.value
+        if (selection.isEmpty || selection.hasIcons) return
+        val frameIds = selection.frameIds
+        val textIds = selection.textIds
+        val strokeIds = selection.strokeIds
+        if (frameIds.isEmpty() && textIds.isEmpty() && strokeIds.isEmpty()) {
+            clearSelection()
+            return
+        }
+
+        frameObjects.update { frames -> frames.filterNot { it.id in frameIds } }
+        textObjects.update { texts -> texts.filterNot { it.id in textIds } }
+        completedStrokes.update { strokes -> strokes.filterNot { it.id in strokeIds } }
+        if (selectedFrameIdForResize.value in frameIds) {
+            selectedFrameIdForResize.value = null
+        }
+        if (activeFrameResizeSession?.frameId in frameIds) {
+            activeFrameResizeSession = null
+        }
+        val inlineTarget = editInlineEditor.value.target
+        val removedInlineTarget = when (inlineTarget) {
+            is CanvasInlineEditorTarget.EditFrame -> inlineTarget.id in frameIds
+            is CanvasInlineEditorTarget.EditText -> inlineTarget.id in textIds
+            else -> false
+        }
+        if (removedInlineTarget) {
+            editInlineEditor.value = CanvasInlineEditorUiState()
+        }
+        clearSelection()
+
+        viewModelScope.launch(dispatchersProvider.io) {
+            frameIds.forEach { frameId ->
+                runCatching { canvasEditDao.deleteFrameObjectById(frameId) }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to delete selected frame $frameId", throwable)
+                    }
+            }
+            textIds.forEach { textId ->
+                runCatching { canvasEditDao.deleteTextObjectById(textId) }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to delete selected text $textId", throwable)
+                    }
+            }
+            strokeIds.forEach { strokeId ->
+                runCatching { canvasEditDao.deleteStrokeById(strokeId) }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to delete selected stroke $strokeId", throwable)
+                    }
+            }
+        }
+    }
+
+    private fun pruneSelectionToExistingObjects() {
+        val current = selectedObjects.value
+        if (current.isEmpty) {
+            selectionBounds.value = null
+            activeSelectionResizeSession = null
+            return
+        }
+        val appPackages = appsState.value.mapTo(HashSet()) { it.packageName }
+        val frameIds = frameObjects.value.mapTo(HashSet()) { it.id }
+        val textIds = textObjects.value.mapTo(HashSet()) { it.id }
+        val strokeIds = completedStrokes.value.mapTo(HashSet()) { it.id }
+        val pruned = CanvasSelectionUiState(
+            packageNames = current.packageNames.filterTo(LinkedHashSet()) { it in appPackages },
+            frameIds = current.frameIds.filterTo(LinkedHashSet()) { it in frameIds },
+            textIds = current.textIds.filterTo(LinkedHashSet()) { it in textIds },
+            strokeIds = current.strokeIds.filterTo(LinkedHashSet()) { it in strokeIds },
+        )
+        if (pruned != current) {
+            selectedObjects.value = pruned
+            activeSelectionResizeSession = null
+        }
+        selectionBounds.value = computeSelectionBounds(pruned)
+    }
+
+    private fun transformFrameByBounds(
+        frame: CanvasFrameObjectUiState,
+        source: WorldBounds,
+        target: WorldBounds,
+    ): CanvasFrameObjectUiState {
+        val original = frame.worldBounds()
+        val mappedLeft = source.mapXTo(target, original.left)
+        val mappedRight = source.mapXTo(target, original.right)
+        val mappedTop = source.mapYTo(target, original.top)
+        val mappedBottom = source.mapYTo(target, original.bottom)
+        val width = (mappedRight - mappedLeft).coerceAtLeast(FRAME_RESIZE_MIN_WIDTH_WORLD)
+        val height = (mappedBottom - mappedTop).coerceAtLeast(FRAME_RESIZE_MIN_HEIGHT_WORLD)
+        return frame.copy(
+            center = WorldPoint(
+                x = (mappedLeft + mappedRight) / 2f,
+                y = (mappedTop + mappedBottom) / 2f,
+            ),
+            widthWorld = width,
+            heightWorld = height,
+            colorArgb = frame.colorArgb,
+            title = frame.title,
+        )
+    }
+
+    private fun transformTextByBounds(
+        text: CanvasTextObjectUiState,
+        source: WorldBounds,
+        target: WorldBounds,
+        scaleX: Float,
+        scaleY: Float,
+    ): CanvasTextObjectUiState {
+        val mappedPosition = source.mapPointTo(target, text.position)
+        val scaleFactor = min(scaleX, scaleY)
+        val mappedTextSize = (text.textSizeWorld * scaleFactor)
+            .coerceIn(TEXT_RESIZE_MIN_SIZE_WORLD, TEXT_RESIZE_MAX_SIZE_WORLD)
+        return text.copy(
+            position = mappedPosition,
+            textSizeWorld = mappedTextSize,
+        )
+    }
+
+    private fun transformStrokeByBounds(
+        stroke: CanvasStrokeUiState,
+        source: WorldBounds,
+        target: WorldBounds,
+    ): CanvasStrokeUiState {
+        return stroke.copy(
+            points = stroke.points.map { point ->
+                source.mapPointTo(target, point)
+            },
+        )
+    }
+
+    private fun currentAppPositionsByPackage(): Map<String, WorldPoint> {
+        return DragPositionOverrides.apply(
+            apps = appsState.value,
+            overrides = committedDragPositions.value,
+        ).associate { app -> app.packageName to app.position }
+    }
+
+    private fun iconWorldSizeForScale(scale: Float): Float {
+        val safeScale = scale.coerceAtLeast(0.0001f)
+        val iconPx = (CanvasConstants.Sizes.ICON_WORLD_SIZE * safeScale)
+            .coerceIn(ICON_MIN_SIZE_PX, ICON_MAX_SIZE_PX)
+        return iconPx / safeScale
+    }
+
     private suspend fun loadPersistedCustomElements() {
         val persistedStickyNotes = canvasEditDao.getStickyNotes().map { entity ->
             CanvasStickyNoteUiState(
@@ -1403,6 +2247,13 @@ class LauncherViewModel @Inject constructor(
         stickyNotes.value = persistedStickyNotes
         textObjects.value = persistedTextObjects
         frameObjects.value = persistedFrameObjects
+        frameDraft.value = null
+        selectedFrameIdForResize.value = null
+        activeFrameResizeSession = null
+        activeSelectionResizeSession = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
         completedStrokes.value = persistedStrokes
 
         nextCanvasObjectId = max(
@@ -1534,6 +2385,7 @@ class LauncherViewModel @Inject constructor(
 
     private fun deleteTextObject(id: String) {
         textObjects.update { objects -> objects.filterNot { item -> item.id == id } }
+        pruneSelectionToExistingObjects()
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching { canvasEditDao.deleteTextObjectById(id) }
                 .onFailure { throwable ->
@@ -1544,6 +2396,13 @@ class LauncherViewModel @Inject constructor(
 
     private fun deleteFrameObject(id: String) {
         frameObjects.update { frames -> frames.filterNot { frame -> frame.id == id } }
+        if (selectedFrameIdForResize.value == id) {
+            selectedFrameIdForResize.value = null
+        }
+        if (activeFrameResizeSession?.frameId == id) {
+            activeFrameResizeSession = null
+        }
+        pruneSelectionToExistingObjects()
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching { canvasEditDao.deleteFrameObjectById(id) }
                 .onFailure { throwable ->
@@ -1602,16 +2461,79 @@ class LauncherViewModel @Inject constructor(
                 .onFailure { throwable ->
                     Log.e(TAG, "Initial sync failed", throwable)
                 }
-            runCatching {
-                val packages = appsState.value.map { app -> app.packageName }
-                if (packages.isNotEmpty()) {
-                    iconCacheGateway.preload(packages)
-                }
+            scheduleIconWarmup(appsState.value)
+        }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun observeViewportIconWarmup() {
+        viewModelScope.launch(dispatchersProvider.io) {
+            combine(
+                appsState,
+                viewportController.cameraState,
+            ) { apps, camera ->
+                apps to camera.worldCenter
             }
-                .onFailure { throwable ->
-                    Log.w(TAG, "Icon warmup failed", throwable)
+                .debounce(ICON_VIEWPORT_WARMUP_DEBOUNCE_MS)
+                .distinctUntilChanged()
+                .collect { (apps, worldCenter) ->
+                    if (apps.isEmpty()) return@collect
+                    val viewportPackages = prioritizePackagesAroundCenter(
+                        apps = apps,
+                        center = worldCenter,
+                        limit = ICON_VIEWPORT_PRIORITY_COUNT,
+                    )
+                    runCatching {
+                        iconCacheGateway.preload(viewportPackages)
+                    }.onFailure { throwable ->
+                        Log.w(TAG, "Viewport icon warmup failed", throwable)
+                    }
                 }
         }
+    }
+
+    private fun scheduleIconWarmup(apps: List<CanvasApp>) {
+        if (apps.isEmpty()) return
+        iconWarmupJob?.cancel()
+        val center = viewportController.cameraState.value.worldCenter
+        iconWarmupJob = viewModelScope.launch(dispatchersProvider.io) {
+            val orderedPackages = prioritizePackagesAroundCenter(
+                apps = apps,
+                center = center,
+            )
+            if (orderedPackages.isEmpty()) return@launch
+            val priority = orderedPackages.take(ICON_INITIAL_PRIORITY_COUNT)
+            val background = orderedPackages.drop(ICON_INITIAL_PRIORITY_COUNT)
+            runCatching {
+                iconCacheGateway.preload(priority)
+            }.onFailure { throwable ->
+                Log.w(TAG, "Priority icon warmup failed", throwable)
+            }
+            background.chunked(ICON_BACKGROUND_WARMUP_BATCH_SIZE).forEach { batch ->
+                if (!isActive) return@launch
+                runCatching {
+                    iconCacheGateway.preload(batch)
+                }.onFailure { throwable ->
+                    Log.w(TAG, "Background icon warmup batch failed", throwable)
+                }
+            }
+        }
+    }
+
+    private fun prioritizePackagesAroundCenter(
+        apps: List<CanvasApp>,
+        center: WorldPoint,
+        limit: Int = Int.MAX_VALUE,
+    ): List<String> {
+        return apps.asSequence()
+            .sortedBy { app ->
+                val dx = app.position.x - center.x
+                val dy = app.position.y - center.y
+                dx * dx + dy * dy
+            }
+            .take(limit)
+            .map { app -> app.packageName }
+            .toList()
     }
 
     private fun observeSystemPackageEvents() {
@@ -1651,12 +2573,22 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    override fun onCleared() {
+        iconWarmupJob?.cancel()
+        cancelCameraFlightAnimation()
+        super.onCleared()
+    }
+
     private companion object {
         private const val TAG = "LauncherViewModel"
         private const val ICON_SNAP_THRESHOLD_SCREEN_PX = 9f
         private const val ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX = 88f
         private const val OBJECT_SNAP_THRESHOLD_SCREEN_PX = 12f
         private const val OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX = 120f
+        private const val ICON_INITIAL_PRIORITY_COUNT = 54
+        private const val ICON_BACKGROUND_WARMUP_BATCH_SIZE = 32
+        private const val ICON_VIEWPORT_PRIORITY_COUNT = 40
+        private const val ICON_VIEWPORT_WARMUP_DEBOUNCE_MS = 220L
         private const val SEARCH_BASE_OCCLUSION_PX = 64f
         private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
         private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
@@ -1664,8 +2596,23 @@ class LauncherViewModel @Inject constructor(
         private const val SEARCH_MAX_FOCUS_LIFT_RATIO = 0.22f
         private const val SEARCH_KEYBOARD_TARGET_SCREEN_Y_RATIO = 0.25f
         private const val SEARCH_MIN_FOCUS_SCALE = 1.08f
+        private const val SEARCH_FLIGHT_DURATION_MS = 620L
+        private const val SEARCH_FLIGHT_MID_PROGRESS = 0.56f
+        private const val SEARCH_FLIGHT_MID_CENTER_RATIO = 0.56f
+        private const val SEARCH_FLIGHT_ZOOM_MULTIPLIER = 1.16f
+        private const val SEARCH_FLIGHT_MIN_DISTANCE_WORLD = 1.4f
+        private const val SEARCH_FLIGHT_MIN_SCALE_DELTA = 0.012f
+        private const val FRAME_RESIZE_MIN_WIDTH_WORLD = 120f
+        private const val FRAME_RESIZE_MIN_HEIGHT_WORLD = 96f
         private const val BRUSH_MIN_POINT_DISTANCE_WORLD = 2f
         private const val ERASER_RADIUS_SCREEN_PX = 22f
+        private const val ICON_MIN_SIZE_PX = 32f
+        private const val ICON_MAX_SIZE_PX = 220f
+        private const val SELECTION_MIN_SIZE_WORLD = 14f
+        private const val SELECTION_RESIZE_MIN_WIDTH_WORLD = 90f
+        private const val SELECTION_RESIZE_MIN_HEIGHT_WORLD = 72f
+        private const val TEXT_RESIZE_MIN_SIZE_WORLD = 10f
+        private const val TEXT_RESIZE_MAX_SIZE_WORLD = 224f
     }
 }
 
@@ -1716,8 +2663,22 @@ private data class SearchToolsState(
     val matchedPackageNames: Set<String> = emptySet(),
 )
 
+private data class FrameDecorationsState(
+    val frames: List<CanvasFrameObjectUiState> = emptyList(),
+    val frameDraft: CanvasFrameDraftUiState? = null,
+    val selectedFrameIdForResize: String? = null,
+    val selectionDraft: CanvasSelectionDraftUiState? = null,
+    val selectionBounds: CanvasSelectionBoundsUiState? = null,
+    val hasActiveSelection: Boolean = false,
+)
+
 private data class CanvasDecorationsState(
     val frames: List<CanvasFrameObjectUiState> = emptyList(),
+    val frameDraft: CanvasFrameDraftUiState? = null,
+    val selectedFrameIdForResize: String? = null,
+    val selectionDraft: CanvasSelectionDraftUiState? = null,
+    val selectionBounds: CanvasSelectionBoundsUiState? = null,
+    val hasActiveSelection: Boolean = false,
     val notes: List<CanvasStickyNoteUiState> = emptyList(),
     val texts: List<CanvasTextObjectUiState> = emptyList(),
     val strokes: List<CanvasStrokeUiState> = emptyList(),
@@ -1728,3 +2689,297 @@ private data class AppsListEntry(
     val packageName: String,
     val label: String,
 )
+
+private data class FrameResizeSession(
+    val frameId: String,
+    val handle: CanvasFrameResizeHandle,
+)
+
+private data class SelectionResizeSession(
+    val handle: CanvasFrameResizeHandle,
+    val selection: CanvasSelectionUiState,
+    val initialBounds: WorldBounds,
+    val initialFrames: Map<String, CanvasFrameObjectUiState>,
+    val initialTexts: Map<String, CanvasTextObjectUiState>,
+    val initialStrokes: Map<String, CanvasStrokeUiState>,
+    var accumulatedDeltaXWorld: Float = 0f,
+    var accumulatedDeltaYWorld: Float = 0f,
+)
+
+private fun CanvasFrameObjectUiState.resizeByHandleDrag(
+    handle: CanvasFrameResizeHandle,
+    deltaXWorld: Float,
+    deltaYWorld: Float,
+    minWidthWorld: Float,
+    minHeightWorld: Float,
+): CanvasFrameObjectUiState {
+    var nextWidth = widthWorld
+    var nextHeight = heightWorld
+    var centerShiftX = 0f
+    var centerShiftY = 0f
+
+    fun applyLeftEdge(delta: Float) {
+        val rawWidth = nextWidth - delta
+        val clamped = rawWidth.coerceAtLeast(minWidthWorld)
+        val appliedEdgeDelta = nextWidth - clamped
+        nextWidth = clamped
+        centerShiftX += appliedEdgeDelta / 2f
+    }
+
+    fun applyRightEdge(delta: Float) {
+        val rawWidth = nextWidth + delta
+        val clamped = rawWidth.coerceAtLeast(minWidthWorld)
+        val appliedEdgeDelta = clamped - nextWidth
+        nextWidth = clamped
+        centerShiftX += appliedEdgeDelta / 2f
+    }
+
+    fun applyTopEdge(delta: Float) {
+        val rawHeight = nextHeight - delta
+        val clamped = rawHeight.coerceAtLeast(minHeightWorld)
+        val appliedEdgeDelta = nextHeight - clamped
+        nextHeight = clamped
+        centerShiftY += appliedEdgeDelta / 2f
+    }
+
+    fun applyBottomEdge(delta: Float) {
+        val rawHeight = nextHeight + delta
+        val clamped = rawHeight.coerceAtLeast(minHeightWorld)
+        val appliedEdgeDelta = clamped - nextHeight
+        nextHeight = clamped
+        centerShiftY += appliedEdgeDelta / 2f
+    }
+
+    when (handle) {
+        CanvasFrameResizeHandle.Left -> applyLeftEdge(deltaXWorld)
+        CanvasFrameResizeHandle.TopLeft -> {
+            applyLeftEdge(deltaXWorld)
+            applyTopEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Top -> applyTopEdge(deltaYWorld)
+        CanvasFrameResizeHandle.TopRight -> {
+            applyRightEdge(deltaXWorld)
+            applyTopEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Right -> applyRightEdge(deltaXWorld)
+        CanvasFrameResizeHandle.BottomRight -> {
+            applyRightEdge(deltaXWorld)
+            applyBottomEdge(deltaYWorld)
+        }
+
+        CanvasFrameResizeHandle.Bottom -> applyBottomEdge(deltaYWorld)
+        CanvasFrameResizeHandle.BottomLeft -> {
+            applyLeftEdge(deltaXWorld)
+            applyBottomEdge(deltaYWorld)
+        }
+    }
+
+    return copy(
+        center = WorldPoint(
+            x = center.x + centerShiftX,
+            y = center.y + centerShiftY,
+        ),
+        widthWorld = nextWidth,
+        heightWorld = nextHeight,
+    )
+}
+
+private data class WorldBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+) {
+    val width: Float
+        get() = (right - left).coerceAtLeast(0.0001f)
+    val height: Float
+        get() = (bottom - top).coerceAtLeast(0.0001f)
+
+    fun contains(point: WorldPoint): Boolean {
+        return point.x in left..right && point.y in top..bottom
+    }
+
+    fun containsRect(other: WorldBounds): Boolean {
+        return other.left >= left &&
+            other.right <= right &&
+            other.top >= top &&
+            other.bottom <= bottom
+    }
+
+    fun offset(deltaX: Float, deltaY: Float): WorldBounds {
+        return copy(
+            left = left + deltaX,
+            top = top + deltaY,
+            right = right + deltaX,
+            bottom = bottom + deltaY,
+        )
+    }
+
+    fun resizeByHandle(
+        handle: CanvasFrameResizeHandle,
+        deltaXWorld: Float,
+        deltaYWorld: Float,
+        minWidthWorld: Float,
+        minHeightWorld: Float,
+    ): WorldBounds {
+        var nextLeft = left
+        var nextTop = top
+        var nextRight = right
+        var nextBottom = bottom
+
+        when (handle) {
+            CanvasFrameResizeHandle.Left -> {
+                nextLeft = (left + deltaXWorld).coerceAtMost(right - minWidthWorld)
+            }
+
+            CanvasFrameResizeHandle.TopLeft -> {
+                nextLeft = (left + deltaXWorld).coerceAtMost(right - minWidthWorld)
+                nextTop = (top + deltaYWorld).coerceAtMost(bottom - minHeightWorld)
+            }
+
+            CanvasFrameResizeHandle.Top -> {
+                nextTop = (top + deltaYWorld).coerceAtMost(bottom - minHeightWorld)
+            }
+
+            CanvasFrameResizeHandle.TopRight -> {
+                nextTop = (top + deltaYWorld).coerceAtMost(bottom - minHeightWorld)
+                nextRight = (right + deltaXWorld).coerceAtLeast(left + minWidthWorld)
+            }
+
+            CanvasFrameResizeHandle.Right -> {
+                nextRight = (right + deltaXWorld).coerceAtLeast(left + minWidthWorld)
+            }
+
+            CanvasFrameResizeHandle.BottomRight -> {
+                nextRight = (right + deltaXWorld).coerceAtLeast(left + minWidthWorld)
+                nextBottom = (bottom + deltaYWorld).coerceAtLeast(top + minHeightWorld)
+            }
+
+            CanvasFrameResizeHandle.Bottom -> {
+                nextBottom = (bottom + deltaYWorld).coerceAtLeast(top + minHeightWorld)
+            }
+
+            CanvasFrameResizeHandle.BottomLeft -> {
+                nextLeft = (left + deltaXWorld).coerceAtMost(right - minWidthWorld)
+                nextBottom = (bottom + deltaYWorld).coerceAtLeast(top + minHeightWorld)
+            }
+        }
+
+        return WorldBounds(
+            left = nextLeft,
+            top = nextTop,
+            right = nextRight,
+            bottom = nextBottom,
+        )
+    }
+
+    fun mapPointTo(target: WorldBounds, point: WorldPoint): WorldPoint {
+        val normalizedX = ((point.x - left) / width).coerceIn(-6f, 6f)
+        val normalizedY = ((point.y - top) / height).coerceIn(-6f, 6f)
+        return WorldPoint(
+            x = target.left + normalizedX * target.width,
+            y = target.top + normalizedY * target.height,
+        )
+    }
+
+    fun mapXTo(target: WorldBounds, x: Float): Float {
+        val normalized = ((x - left) / width).coerceIn(-6f, 6f)
+        return target.left + normalized * target.width
+    }
+
+    fun mapYTo(target: WorldBounds, y: Float): Float {
+        val normalized = ((y - top) / height).coerceIn(-6f, 6f)
+        return target.top + normalized * target.height
+    }
+}
+
+private fun worldBoundsOfCorners(a: WorldPoint, b: WorldPoint): WorldBounds {
+    return WorldBounds(
+        left = min(a.x, b.x),
+        top = min(a.y, b.y),
+        right = max(a.x, b.x),
+        bottom = max(a.y, b.y),
+    )
+}
+
+private fun CanvasFrameObjectUiState.worldBounds(): WorldBounds {
+    return WorldBounds(
+        left = center.x - widthWorld / 2f,
+        top = center.y - heightWorld / 2f,
+        right = center.x + widthWorld / 2f,
+        bottom = center.y + heightWorld / 2f,
+    )
+}
+
+private fun CanvasTextObjectUiState.estimatedWorldBounds(): WorldBounds {
+    val safeText = text.ifBlank { "Text" }
+    val lines = safeText.split('\n').ifEmpty { listOf(safeText) }
+    val longestLine = lines.maxOfOrNull { it.length }?.coerceAtLeast(1) ?: 1
+    val lineCount = lines.size.coerceAtLeast(1)
+    val estimatedWidth = (textSizeWorld * longestLine * TEXT_ESTIMATED_WIDTH_FACTOR)
+        .coerceAtLeast(textSizeWorld * TEXT_ESTIMATED_MIN_WIDTH_MULTIPLIER)
+    val estimatedHeight = (textSizeWorld * lineCount * TEXT_ESTIMATED_HEIGHT_FACTOR)
+        .coerceAtLeast(textSizeWorld * 1.12f)
+    return WorldBounds(
+        left = position.x - estimatedWidth / 2f,
+        top = position.y - estimatedHeight / 2f,
+        right = position.x + estimatedWidth / 2f,
+        bottom = position.y + estimatedHeight / 2f,
+    )
+}
+
+private fun CanvasStrokeUiState.worldBoundsWithStrokeWidth(): WorldBounds? {
+    if (points.isEmpty()) return null
+    val padding = (widthWorld / 2f).coerceAtLeast(1f)
+    val left = points.minOf { it.x } - padding
+    val right = points.maxOf { it.x } + padding
+    val top = points.minOf { it.y } - padding
+    val bottom = points.maxOf { it.y } + padding
+    return WorldBounds(left = left, top = top, right = right, bottom = bottom)
+}
+
+private fun CanvasSelectionBoundsUiState.offset(deltaX: Float, deltaY: Float): CanvasSelectionBoundsUiState {
+    return copy(
+        left = left + deltaX,
+        top = top + deltaY,
+        right = right + deltaX,
+        bottom = bottom + deltaY,
+    )
+}
+
+private fun lerp(start: Float, end: Float, amount: Float): Float {
+    return start + (end - start) * amount
+}
+
+private fun lerp(start: WorldPoint, end: WorldPoint, amount: Float): WorldPoint {
+    return WorldPoint(
+        x = lerp(start.x, end.x, amount),
+        y = lerp(start.y, end.y, amount),
+    )
+}
+
+private fun distance(a: WorldPoint, b: WorldPoint): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return sqrt(dx * dx + dy * dy)
+}
+
+private fun easeOutCubic(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return 1f - (1f - x) * (1f - x) * (1f - x)
+}
+
+private fun easeInOutCubic(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return if (x < 0.5f) {
+        4f * x * x * x
+    } else {
+        1f - ((-2f * x + 2f).let { it * it * it } / 2f)
+    }
+}
+
+private const val TEXT_ESTIMATED_WIDTH_FACTOR = 0.56f
+private const val TEXT_ESTIMATED_MIN_WIDTH_MULTIPLIER = 1.7f
+private const val TEXT_ESTIMATED_HEIGHT_FACTOR = 1.22f
