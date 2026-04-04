@@ -50,6 +50,26 @@ class AppSearchEngineTest {
     }
 
     @Test
+    fun `indexed ranking matches direct ranking`() {
+        val indexed = AppSearchEngine.rankByLabel(
+            query = "calemdar",
+            searchIndex = AppSearchEngine.buildIndex(apps),
+        )
+        val direct = AppSearchEngine.rankByLabel(query = "calemdar", apps = apps)
+
+        assertThat(indexed).isEqualTo(direct)
+    }
+
+    @Test
+    fun `search index keeps pre-sorted labels for blank query rendering`() {
+        val index = AppSearchEngine.buildIndex(apps)
+
+        val labels = index.entriesSortedByLabel.map { entry -> entry.label }
+
+        assertThat(labels).containsExactly("Calendar", "Camera Pro", "Chat", "Mailbox").inOrder()
+    }
+
+    @Test
     fun `latin transliteration matches cyrillic label`() {
         val translitApps = listOf(
             CanvasApp(packageName = "com.android.dialer", label = "Звонок", position = WorldPoint(0f, 0f)),
@@ -91,4 +111,5 @@ class AppSearchEngineTest {
 
         assertThat(result.firstOrNull()?.label).isEqualTo("Call")
     }
+
 }

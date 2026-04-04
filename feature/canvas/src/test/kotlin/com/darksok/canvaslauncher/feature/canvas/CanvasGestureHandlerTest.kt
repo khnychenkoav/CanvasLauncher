@@ -25,12 +25,11 @@ class CanvasGestureHandlerTest {
         val handler = DefaultCanvasGestureHandler(viewport)
 
         handler.onTransform(
-            panDeltaPx = ScreenPoint(18f, 0f),
+            panDeltaPx = ScreenPoint(2f, 0f),
             zoomFactor = 1.03f,
             focusPx = ScreenPoint(540f, 960f),
         )
 
-        assertThat(viewport.panCalls).isEqualTo(0)
         assertThat(viewport.cameraState.value.worldCenter).isEqualTo(WorldPoint(0f, 0f))
     }
 
@@ -52,7 +51,28 @@ class CanvasGestureHandlerTest {
             focusPx = ScreenPoint(540f, 960f),
         )
 
-        assertThat(viewport.panCalls).isEqualTo(1)
+        assertThat(viewport.cameraState.value.worldCenter).isNotEqualTo(WorldPoint(0f, 0f))
+    }
+
+    @Test
+    fun `pinch at max scale still allows meaningful pan`() {
+        val viewport = FakeViewportController(
+            initialCamera = CameraState(
+                worldCenter = WorldPoint(0f, 0f),
+                scale = 2.0f,
+                viewportWidthPx = 1080,
+                viewportHeightPx = 1920,
+            ),
+        )
+        val handler = DefaultCanvasGestureHandler(viewport)
+
+        handler.onTransform(
+            panDeltaPx = ScreenPoint(18f, 0f),
+            zoomFactor = 1.03f,
+            focusPx = ScreenPoint(540f, 960f),
+        )
+
+        assertThat(viewport.cameraState.value.worldCenter).isNotEqualTo(WorldPoint(0f, 0f))
     }
 
     private class FakeViewportController(
@@ -60,12 +80,10 @@ class CanvasGestureHandlerTest {
     ) : ViewportController {
         private val camera = MutableStateFlow(initialCamera)
         override val cameraState: StateFlow<CameraState> = camera.asStateFlow()
-        var panCalls: Int = 0
 
         override fun updateViewportSize(widthPx: Int, heightPx: Int) = Unit
 
         override fun panBy(deltaPx: ScreenPoint) {
-            panCalls += 1
             camera.value = WorldScreenTransformer.applyPan(camera.value, deltaPx)
         }
 
