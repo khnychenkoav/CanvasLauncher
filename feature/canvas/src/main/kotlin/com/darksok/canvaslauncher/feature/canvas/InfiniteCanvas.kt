@@ -107,16 +107,22 @@ fun InfiniteCanvas(
         delay(CanvasUiConstants.LABEL_REVEAL_DELAY_MS)
         labelsActivated = true
     }
-    val pulseTransition = rememberInfiniteTransition(label = "search-match-pulse")
-    val pulseAlpha by pulseTransition.animateFloat(
-        initialValue = CanvasUiConstants.MATCH_PULSE_MIN_ALPHA,
-        targetValue = CanvasUiConstants.MATCH_PULSE_MAX_ALPHA,
-        animationSpec = infiniteRepeatable(
-            animation = tween(CanvasUiConstants.MATCH_PULSE_DURATION_MS),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "search-match-alpha",
-    )
+    val hasMatchedApps = apps.any { app -> app.searchVisualState == CanvasSearchVisualState.Matched }
+    val pulseAlpha = if (hasMatchedApps) {
+        val pulseTransition = rememberInfiniteTransition(label = "search-match-pulse")
+        val animatedPulse by pulseTransition.animateFloat(
+            initialValue = CanvasUiConstants.MATCH_PULSE_MIN_ALPHA,
+            targetValue = CanvasUiConstants.MATCH_PULSE_MAX_ALPHA,
+            animationSpec = infiniteRepeatable(
+                animation = tween(CanvasUiConstants.MATCH_PULSE_DURATION_MS),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "search-match-alpha",
+        )
+        animatedPulse
+    } else {
+        1f
+    }
 
     Box(
         modifier = modifier
