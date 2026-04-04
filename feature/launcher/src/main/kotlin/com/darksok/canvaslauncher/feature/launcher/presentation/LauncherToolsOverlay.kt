@@ -31,6 +31,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
@@ -69,9 +71,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -786,6 +790,35 @@ private fun EditInlineEditorPill(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val isMultilineInput = when (state.target) {
+        is CanvasInlineEditorTarget.EditSticky,
+        is CanvasInlineEditorTarget.NewSticky,
+        is CanvasInlineEditorTarget.EditText,
+        is CanvasInlineEditorTarget.NewText,
+        -> true
+
+        else -> false
+    }
+    var editorValue by remember(state.target, state.isVisible) {
+        mutableStateOf(
+            TextFieldValue(
+                text = state.value,
+                selection = TextRange(state.value.length),
+            ),
+        )
+    }
+    LaunchedEffect(state.value, state.target) {
+        if (state.value != editorValue.text) {
+            val maxIndex = state.value.length
+            editorValue = editorValue.copy(
+                text = state.value,
+                selection = TextRange(
+                    start = editorValue.selection.start.coerceIn(0, maxIndex),
+                    end = editorValue.selection.end.coerceIn(0, maxIndex),
+                ),
+            )
+        }
+    }
     val placeholderText = state.placeholderResId?.let { placeholderResId ->
         stringResource(id = placeholderResId)
     }.orEmpty()
@@ -800,43 +833,79 @@ private fun EditInlineEditorPill(
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
         tonalElevation = 6.dp,
         modifier = Modifier
-            .height(50.dp)
-            .size(width = maxWidth, height = 50.dp),
+            .size(
+                width = maxWidth,
+                height = if (isMultilineInput) 132.dp else 50.dp,
+            )
+            .heightIn(min = 50.dp, max = 196.dp),
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = if (isMultilineInput) Alignment.Bottom else Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
-            BasicTextField(
-                value = state.value,
-                onValueChange = onValueChanged,
-                singleLine = true,
+            TextField(
+                value = editorValue,
+                onValueChange = { updated ->
+                    val sanitized = if (isMultilineInput) {
+                        updated
+                    } else {
+                        val sanitizedText = updated.text.replace('\n', ' ')
+                        val cursor = updated.selection.end.coerceIn(0, sanitizedText.length)
+                        updated.copy(
+                            text = sanitizedText,
+                            selection = TextRange(cursor),
+                            composition = null,
+                        )
+                    }
+                    editorValue = sanitized
+                    if (sanitized.text != state.value) {
+                        onValueChanged(sanitized.text)
+                    }
+                },
+                singleLine = !isMultilineInput,
+                maxLines = if (isMultilineInput) INLINE_EDITOR_MAX_LINES else 1,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onConfirm() }),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (state.value.isBlank() && placeholderText.isNotBlank()) {
-                            Text(
-                                text = placeholderText,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
-                            )
-                        }
-                        inner()
+                placeholder = {
+                    if (placeholderText.isNotBlank()) {
+                        Text(
+                            text = placeholderText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
+                        )
                     }
                 },
+                keyboardOptions = KeyboardOptions(
+                    imeAction = if (isMultilineInput) ImeAction.Default else ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (!isMultilineInput) {
+                            onConfirm()
+                        }
+                    },
+                ),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .padding(vertical = 2.dp),
             )
             ToolCircleButton(
                 onClick = onConfirm,
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .size(38.dp),
                 usePrimaryContainer = false,
             ) {
                 Icon(
@@ -934,6 +1003,8 @@ internal object SearchSuggestionTextFormatter {
         }
     }
 }
+
+private const val INLINE_EDITOR_MAX_LINES = 10
 
 private object ToolPanelUiConstants {
     val BUTTON_SIZE = 56.dp
