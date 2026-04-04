@@ -11,7 +11,7 @@ data class RankedSearchMatch(
     val score: Int,
 )
 
-data class SearchIndex internal constructor(
+class SearchIndex internal constructor(
     internal val entries: List<IndexedApp>,
     internal val entriesSortedByLabel: List<IndexedApp>,
 )
