@@ -57,6 +57,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,6 +75,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class LauncherViewModel @Inject constructor(
     observeAppsUseCase: ObserveAppsUseCase,
     observeThemeModeUseCase: ObserveThemeModeUseCase,
