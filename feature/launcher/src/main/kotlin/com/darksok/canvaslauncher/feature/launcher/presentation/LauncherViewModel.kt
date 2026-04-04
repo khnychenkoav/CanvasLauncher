@@ -1426,6 +1426,52 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    fun onEditObjectDragCancel() {
+        val session = activeObjectDragSession
+        val target = activeObjectDrag
+        if (session != null && target != null) {
+            when (target) {
+                is CanvasObjectDragTarget.Frame -> {
+                    frameObjects.update { frames ->
+                        frames.map { current ->
+                            if (current.id == target.id) current.copy(center = session.initialPosition) else current
+                        }
+                    }
+                }
+
+                is CanvasObjectDragTarget.Sticky -> {
+                    stickyNotes.update { notes ->
+                        notes.map { current ->
+                            if (current.id == target.id) current.copy(center = session.initialPosition) else current
+                        }
+                    }
+                }
+
+                is CanvasObjectDragTarget.Text -> {
+                    textObjects.update { texts ->
+                        texts.map { current ->
+                            if (current.id == target.id) current.copy(position = session.initialPosition) else current
+                        }
+                    }
+                }
+
+                is CanvasObjectDragTarget.Widget -> {
+                    widgets.update { canvasWidgets ->
+                        canvasWidgets.map { current ->
+                            if (current.id == target.id) current.copy(center = session.initialPosition) else current
+                        }
+                    }
+                }
+            }
+        }
+        activeObjectDrag = null
+        activeObjectDragSession = null
+        snapGuides.value = emptyList()
+        if (!selectedObjects.value.isEmpty) {
+            selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        }
+    }
+
     fun onEditInlineEditorValueChanged(value: String) {
         if (activeTool.value != LauncherToolId.Edit) return
         editInlineEditor.update { it.copy(value = value) }

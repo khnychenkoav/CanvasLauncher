@@ -156,6 +156,7 @@ fun LauncherRoute(
                         cameraState = uiState.cameraState,
                         apps = uiState.visibleApps,
                         draggingPackageName = uiState.draggingPackageName,
+                        transformEnabled = !uiState.toolsState.isEditActive && !uiState.toolsState.isWidgetsActive,
                         labelsEnabled = true,
                         backgroundConfig = backgroundConfig,
                         onViewportSizeChanged = { size ->
@@ -225,6 +226,7 @@ fun LauncherRoute(
                         onObjectDragStart = viewModel::onEditObjectDragStart,
                         onObjectDragDelta = viewModel::onEditObjectDragDelta,
                         onObjectDragEnd = viewModel::onEditObjectDragEnd,
+                        onObjectDragCancel = viewModel::onEditObjectDragCancel,
                         onCanvasTransform = { pan, zoom, focus ->
                             viewModel.onTransform(pan, zoom, focus)
                         },
