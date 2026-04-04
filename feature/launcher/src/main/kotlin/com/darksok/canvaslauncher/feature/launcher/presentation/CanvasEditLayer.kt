@@ -122,7 +122,9 @@ fun CanvasEditLayer(
     onWidgetResizeDrag: (CanvasFrameResizeHandle, ScreenPoint) -> Unit,
     onWidgetResizeEnd: () -> Unit,
     onWidgetDeleteTap: () -> Unit,
-    onFrameTap: (id: String) -> Unit,
+    onFrameTap: (id: String, displayedTitle: String) -> Unit,
+    onFrameDeleteTap: (id: String) -> Unit,
+    onMoveBackgroundTap: () -> Unit,
     onFrameBorderTap: (id: String) -> Unit,
     onFrameResizeStart: (id: String, handle: CanvasFrameResizeHandle) -> Unit,
     onFrameResizeDrag: (id: String, handle: CanvasFrameResizeHandle, delta: ScreenPoint) -> Unit,
@@ -294,6 +296,19 @@ fun CanvasEditLayer(
             }
         }
 
+        if (isEditActive && editState.selectedTool == CanvasEditToolId.Move &&
+            (selectedFrameIdForResize != null || selectedWidgetIdForResize != null)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0.305f)
+                    .pointerInput(selectedFrameIdForResize, selectedWidgetIdForResize) {
+                        detectTapGestures(onTap = { onMoveBackgroundTap() })
+                    },
+            )
+        }
+
         val viewportWidthPx = cameraState.viewportWidthPx.toFloat()
         val viewportHeightPx = cameraState.viewportHeightPx.toFloat()
         frameLayouts.forEach { item ->
@@ -426,7 +441,7 @@ fun CanvasEditLayer(
                         if (isEditActive && allowsObjectTap) {
                             Modifier.pointerInput(frame.id, editState.selectedTool) {
                                 detectTapGestures(
-                                    onTap = { onFrameTap(frame.id) },
+                                    onTap = { onFrameTap(frame.id, frameTitle) },
                                 )
                             }
                         } else {
@@ -436,6 +451,15 @@ fun CanvasEditLayer(
             )
 
             if (isEditActive && allowsFrameBorderSelection && selectedFrameIdForResize == frame.id) {
+                SelectionDeleteButton(
+                    onClick = { onFrameDeleteTap(frame.id) },
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationX = frameLeft + item.widthPx / 2f - with(density) { 18.dp.toPx() }
+                            translationY = frameTop - with(density) { DELETE_BUTTON_VERTICAL_OFFSET_DP.toPx() }
+                        }
+                        .zIndex(1.22f),
+                )
                 FrameResizeHandles(
                     frameId = frame.id,
                     frameLeftPx = frameLeft,
@@ -578,14 +602,16 @@ fun CanvasEditLayer(
                         )
                     }
 
-                    if (editState.selectedTool == CanvasEditToolId.Selection && bounds.canResizeAndDelete) {
+                    if (bounds.canDelete) {
                         SelectionDeleteButton(
                             onClick = onSelectionDeleteTap,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
-                                .offset(y = (-20).dp)
+                                .offset(y = -DELETE_BUTTON_VERTICAL_OFFSET_DP)
                                 .zIndex(1.2f),
                         )
+                    }
+                    if (bounds.canResize) {
                         SelectionResizeHandles(
                             boundsWidthPx = rectWidthPx,
                             boundsHeightPx = rectHeightPx,
@@ -1011,7 +1037,7 @@ fun CanvasEditLayer(
                     modifier = Modifier
                         .graphicsLayer {
                             translationX = layout.center.x - with(density) { 18.dp.toPx() }
-                            translationY = layout.topPx - with(density) { 20.dp.toPx() }
+                            translationY = layout.topPx - with(density) { DELETE_BUTTON_VERTICAL_OFFSET_DP.toPx() }
                         }
                         .zIndex(0.84f),
                 )
@@ -1291,7 +1317,7 @@ private fun Modifier.canvasInputModifier(
                     )
                     val currentBounds = latestSelectionBounds.value
                     val deferToResizeHandle = currentBounds?.let { bounds ->
-                        bounds.canResizeAndDelete && isNearSelectionResizeHandle(
+                        bounds.canResize && isNearSelectionResizeHandle(
                             screenPoint = down.position,
                             selectionBounds = bounds,
                             cameraState = latestCameraState.value,
@@ -1520,7 +1546,7 @@ private fun Modifier.objectMoveModifier(
             var dragStarted = false
 
             while (true) {
-                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                val event = awaitPointerEvent()
                 val pressed = event.changes.filter { change -> change.pressed }
                 val pointerChange = event.changes.firstOrNull { change -> change.id == pointerId }
 
@@ -2063,6 +2089,7 @@ private val FRAME_BORDER_TAP_HIT_DP = 18.dp
 private val FRAME_RESIZE_HANDLE_TOUCH_TARGET_DP = 30.dp
 private val FRAME_RESIZE_HANDLE_VISUAL_SIZE_DP = 12.dp
 private val FRAME_TITLE_OFFSET_DP = 8.dp
+private val DELETE_BUTTON_VERTICAL_OFFSET_DP = 42.dp
 private val FRAME_TITLE_CORNER_RADIUS_DP = 8.dp
 private val FRAME_TITLE_HORIZONTAL_PADDING_DP = 8.dp
 private val FRAME_TITLE_VERTICAL_PADDING_DP = 5.dp
@@ -2093,4 +2120,4 @@ private const val WIDGET_BORDER_STROKE_PX = 1.4f
 private const val TEXT_ESTIMATED_CHAR_WIDTH_FACTOR = 0.58f
 private const val TEXT_ESTIMATED_LINE_HEIGHT_MULTIPLIER = 1.12f
 private const val TEXT_ESTIMATED_MIN_WIDTH_MULTIPLIER = 0.9f
-private const val OBJECT_DRAG_START_SLOP_MULTIPLIER = 1.65f
+private const val OBJECT_DRAG_START_SLOP_MULTIPLIER = 1.0f

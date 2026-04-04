@@ -11,7 +11,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +39,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -78,6 +78,7 @@ fun InfiniteCanvas(
     cameraState: CameraState,
     apps: List<CanvasRenderableApp>,
     draggingPackageName: String?,
+    appDragEnabled: Boolean,
     transformEnabled: Boolean,
     labelsEnabled: Boolean,
     backgroundConfig: CanvasBackgroundConfig,
@@ -89,12 +90,15 @@ fun InfiniteCanvas(
     onAppDragDelta: (String, ScreenPoint) -> Unit,
     onAppDragEnd: (String) -> Unit,
     onAppDragCancel: () -> Unit,
+    onAppAutoPanDelta: (ScreenPoint) -> Unit,
 ) {
     val density = LocalDensity.current
     val viewConfiguration = LocalViewConfiguration.current
     val edgeGestureGuardPx = with(density) { CanvasUiConstants.EDGE_GESTURE_GUARD_DP.toPx() }
     val singlePointerPanSlopPx = viewConfiguration.touchSlop * CanvasUiConstants.SINGLE_POINTER_PAN_SLOP_MULTIPLIER
     val touchArbiter = remember { CanvasInteractionArbiter() }
+    val appDragAutoPanZonePx = with(density) { CanvasUiConstants.APP_DRAG_AUTO_PAN_ZONE_DP.toPx() }
+    val appDragAutoPanMaxStepPx = with(density) { CanvasUiConstants.APP_DRAG_AUTO_PAN_MAX_STEP_DP.toPx() }
     var isGestureInProgress by remember { mutableStateOf(false) }
     var labelsVisible by remember {
         mutableStateOf(cameraState.scale >= CanvasConstants.Scale.LABEL_VISIBLE_THRESHOLD)
@@ -228,12 +232,18 @@ fun InfiniteCanvas(
                     showLabel = labelsEnabled && labelsActivated && labelsVisible && !isGestureInProgress,
                     showFullLabel = cameraState.scale >= CanvasUiConstants.FULL_LABEL_ZOOM_THRESHOLD,
                     isDragging = draggingPackageName == app.packageName,
+                    dragEnabled = appDragEnabled,
                     onClick = onAppClick,
                     onDragStart = onAppDragStart,
                     onDragDelta = onAppDragDelta,
                     onDragEnd = onAppDragEnd,
                     onDragCancel = onAppDragCancel,
+                    onAutoPanDelta = onAppAutoPanDelta,
                     isTapSuppressed = touchArbiter::shouldSuppressTap,
+                    canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
+                    canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
+                    autoPanZonePx = appDragAutoPanZonePx,
+                    autoPanMaxStepPx = appDragAutoPanMaxStepPx,
                 )
             }
         }
@@ -307,12 +317,18 @@ private fun CanvasAppNode(
     showLabel: Boolean,
     showFullLabel: Boolean,
     isDragging: Boolean,
+    dragEnabled: Boolean,
     onClick: (String) -> Unit,
     onDragStart: (String) -> Unit,
     onDragDelta: (String, ScreenPoint) -> Unit,
     onDragEnd: (String) -> Unit,
     onDragCancel: () -> Unit,
+    onAutoPanDelta: (ScreenPoint) -> Unit,
     isTapSuppressed: (Long) -> Boolean,
+    canvasWidthPx: Float,
+    canvasHeightPx: Float,
+    autoPanZonePx: Float,
+    autoPanMaxStepPx: Float,
 ) {
     val pulseAlpha = if (searchVisualState == CanvasSearchVisualState.Matched) matchPulseAlphaState.value else 1f
     val bitmap: ImageBitmap? = remember(iconBitmap) { iconBitmap?.asImageBitmap() }
@@ -322,46 +338,18 @@ private fun CanvasAppNode(
         )
     }
     val iconSizeDp = with(LocalDensity.current) { iconSizePx.toDp() }
-    val touchSlopPx = LocalViewConfiguration.current.touchSlop
+    val viewConfiguration = LocalViewConfiguration.current
+    val touchSlopPx = viewConfiguration.touchSlop
     val isInteractive = searchVisualState != CanvasSearchVisualState.Dimmed
     val interactionModifier = if (isInteractive) {
         Modifier
-            .pointerInput(packageName) {
-                var dragAccepted = false
-                detectDragGesturesAfterLongPress(
-                    onDragStart = {
-                        dragAccepted = !isTapSuppressed(SystemClock.uptimeMillis())
-                        if (dragAccepted) {
-                            onDragStart(packageName)
-                        }
-                    },
-                    onDragEnd = {
-                        if (dragAccepted) {
-                            onDragEnd(packageName)
-                        }
-                        dragAccepted = false
-                    },
-                    onDragCancel = {
-                        if (dragAccepted) {
-                            onDragCancel()
-                        }
-                        dragAccepted = false
-                    },
-                    onDrag = { change, dragAmount ->
-                        if (!dragAccepted) {
-                            return@detectDragGesturesAfterLongPress
-                        }
-                        change.consume()
-                        onDragDelta(packageName, ScreenPoint(dragAmount.x, dragAmount.y))
-                    },
-                )
-            }
-            .pointerInput(packageName, touchSlopPx) {
+            .pointerInput(packageName, touchSlopPx, dragEnabled, position) {
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
                     var trackedId = firstDown.id
                     var maxPointerCount = 1
                     var totalMove = 0f
+                    var dragStarted = false
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -377,17 +365,64 @@ private fun CanvasAppNode(
                             continue
                         }
 
-                        totalMove += tracked.positionChange().getDistance()
-                        if (!tracked.pressed) {
-                            val eventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: SystemClock.uptimeMillis()
-                            if (AppTouchClassifier.shouldTriggerTap(
-                                    maxPointerCount = maxPointerCount,
-                                    totalMoveDistancePx = totalMove,
-                                    touchSlopPx = touchSlopPx,
-                                    isTapSuppressed = isTapSuppressed(eventUptime),
+                        val delta = tracked.positionChange()
+                        totalMove += delta.getDistance()
+                        val eventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: SystemClock.uptimeMillis()
+
+                        val movedDistancePx = (tracked.position - firstDown.position).getDistance()
+                        if (!dragStarted &&
+                            dragEnabled &&
+                            maxPointerCount == 1 &&
+                            !isTapSuppressed(eventUptime) &&
+                            movedDistancePx > (touchSlopPx * CanvasUiConstants.APP_DRAG_START_SLOP_MULTIPLIER)
+                        ) {
+                            dragStarted = true
+                            onDragStart(packageName)
+                        }
+
+                        if (dragStarted && maxPointerCount > 1) {
+                            onDragCancel()
+                            break
+                        }
+
+                        if (dragStarted && tracked.pressed) {
+                            if (delta != Offset.Zero) {
+                                val pointerScreen = Offset(
+                                    x = position.x.toFloat() + tracked.position.x,
+                                    y = position.y.toFloat() + tracked.position.y,
                                 )
-                            ) {
-                                onClick(packageName)
+                                val autoPanDelta = edgeAutoPanDelta(
+                                    pointerScreen = pointerScreen,
+                                    canvasWidthPx = canvasWidthPx,
+                                    canvasHeightPx = canvasHeightPx,
+                                    autoPanZonePx = autoPanZonePx,
+                                    autoPanMaxStepPx = autoPanMaxStepPx,
+                                )
+                                autoPanDelta?.let(onAutoPanDelta)
+                                tracked.consume()
+                                onDragDelta(
+                                    packageName,
+                                    ScreenPoint(
+                                        x = delta.x + (autoPanDelta?.x ?: 0f),
+                                        y = delta.y + (autoPanDelta?.y ?: 0f),
+                                    ),
+                                )
+                            }
+                        }
+
+                        if (!tracked.pressed) {
+                            if (dragStarted) {
+                                onDragEnd(packageName)
+                            } else {
+                                if (AppTouchClassifier.shouldTriggerTap(
+                                        maxPointerCount = maxPointerCount,
+                                        totalMoveDistancePx = totalMove,
+                                        touchSlopPx = touchSlopPx,
+                                        isTapSuppressed = isTapSuppressed(eventUptime),
+                                    )
+                                ) {
+                                    onClick(packageName)
+                                }
                             }
                             break
                         }
@@ -502,6 +537,41 @@ private fun CanvasAppNode(
     }
 }
 
+private fun edgeAutoPanDelta(
+    pointerScreen: Offset,
+    canvasWidthPx: Float,
+    canvasHeightPx: Float,
+    autoPanZonePx: Float,
+    autoPanMaxStepPx: Float,
+): ScreenPoint? {
+    if (canvasWidthPx <= 1f || canvasHeightPx <= 1f || autoPanZonePx <= 0f || autoPanMaxStepPx <= 0f) {
+        return null
+    }
+    fun axisDelta(
+        value: Float,
+        maxValue: Float,
+    ): Float {
+        return when {
+            value < autoPanZonePx -> {
+                val intensity = ((autoPanZonePx - value) / autoPanZonePx).coerceIn(0f, 1f)
+                -autoPanMaxStepPx * intensity
+            }
+
+            value > maxValue - autoPanZonePx -> {
+                val intensity = ((value - (maxValue - autoPanZonePx)) / autoPanZonePx).coerceIn(0f, 1f)
+                autoPanMaxStepPx * intensity
+            }
+
+            else -> 0f
+        }
+    }
+
+    val deltaX = axisDelta(pointerScreen.x, canvasWidthPx)
+    val deltaY = axisDelta(pointerScreen.y, canvasHeightPx)
+    if (deltaX == 0f && deltaY == 0f) return null
+    return ScreenPoint(deltaX, deltaY)
+}
+
 private object CanvasUiConstants {
     val EDGE_GESTURE_GUARD_DP = 20.dp
     const val MIN_ICON_SIZE_PX = 32f
@@ -520,7 +590,10 @@ private object CanvasUiConstants {
     const val MIN_TRANSFORM_PAN_DELTA_SQ_PX = 0.16f
     const val MIN_TRANSFORM_ZOOM_DELTA = 0.0012f
     const val SINGLE_POINTER_PAN_SLOP_MULTIPLIER = 1f
+    const val APP_DRAG_START_SLOP_MULTIPLIER = 1f
     const val FULL_LABEL_ZOOM_THRESHOLD = CanvasConstants.Scale.MAX_SCALE - 0.01f
+    val APP_DRAG_AUTO_PAN_ZONE_DP = 72.dp
+    val APP_DRAG_AUTO_PAN_MAX_STEP_DP = 16.dp
 }
 
 private class DotPointBuffer {

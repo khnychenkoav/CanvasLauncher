@@ -47,6 +47,7 @@ import com.darksok.canvaslauncher.feature.canvas.DragState
 import com.darksok.canvaslauncher.feature.canvas.ViewportController
 import com.darksok.canvaslauncher.feature.launcher.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.ArrayDeque
 import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.abs
@@ -112,6 +113,7 @@ class LauncherViewModel @Inject constructor(
     private val editBrushWidthWorld = MutableStateFlow(CanvasEditDefaults.DEFAULT_BRUSH_WIDTH_WORLD)
     private val editTextSizeWorld = MutableStateFlow(CanvasEditDefaults.DEFAULT_TEXT_SIZE_WORLD)
     private val editInlineEditor = MutableStateFlow(CanvasInlineEditorUiState())
+    private val editCanUndo = MutableStateFlow(false)
     private val frameObjects = MutableStateFlow<List<CanvasFrameObjectUiState>>(emptyList())
     private val frameDraft = MutableStateFlow<CanvasFrameDraftUiState?>(null)
     private val selectedFrameIdForResize = MutableStateFlow<String?>(null)
@@ -134,7 +136,10 @@ class LauncherViewModel @Inject constructor(
     private var activeFrameResizeSession: FrameResizeSession? = null
     private var activeWidgetResizeSession: WidgetResizeSession? = null
     private var activeSelectionResizeSession: SelectionResizeSession? = null
+    private var selectionMoveUndoCaptured: Boolean = false
+    private var inlineEditorUndoCapturedTarget: CanvasInlineEditorTarget = CanvasInlineEditorTarget.None
     private var transientIconSnapDragActive: Boolean = false
+    private val editUndoStack = ArrayDeque<EditUndoSnapshot>()
     private var cameraFlightJob: Job? = null
     private var iconWarmupJob: Job? = null
 
@@ -231,7 +236,7 @@ class LauncherViewModel @Inject constructor(
         initialValue = emptyList(),
     )
 
-    private val editUiState = combine(
+    private val editUiStateBase = combine(
         editSelectedTool,
         editSelectedColorArgb,
         editBrushWidthWorld,
@@ -245,6 +250,9 @@ class LauncherViewModel @Inject constructor(
             textSizeWorld = textSize,
             inlineEditor = inlineEditor,
         )
+    }
+    private val editUiState = combine(editUiStateBase, editCanUndo) { base, canUndo ->
+        base.copy(canUndo = canUndo)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -561,6 +569,7 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value == LauncherToolId.Edit || activeTool.value == LauncherToolId.Widgets) return
         if (dragDropController.dragState.value != null) return
         clearSpotlight()
+        cancelCameraFlightAnimation()
         viewModelScope.launch {
             when (launchAppUseCase(packageName)) {
                 is AppResult.Success -> Unit
@@ -570,11 +579,11 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppDragStart(packageName: String) {
-        if (activeTool.value == LauncherToolId.Widgets) return
+        if (!isAppDragAllowed()) return
         clearSpotlight()
         cancelCameraFlightAnimation()
         val app = appsState.value.firstOrNull { it.packageName == packageName } ?: return
-        transientIconSnapDragActive = activeTool.value != LauncherToolId.Edit
+        transientIconSnapDragActive = false
         snapGuides.value = emptyList()
         dragDropController.startDrag(packageName, app.position)
     }
@@ -583,30 +592,30 @@ class LauncherViewModel @Inject constructor(
         packageName: String,
         delta: ScreenPoint,
     ) {
-        if (activeTool.value == LauncherToolId.Widgets) return
+        if (!isAppDragAllowed()) return
         val drag = dragDropController.dragState.value ?: return
         if (drag.packageName != packageName) return
         val currentScale = viewportController.cameraState.value.scale
         dragDropController.dragBy(delta, currentScale)
-        if (activeTool.value == LauncherToolId.Edit || transientIconSnapDragActive) {
-            val updated = dragDropController.dragState.value ?: return
-            val anchors = buildSnapAnchors(excludedIconPackage = packageName)
-            val snapped = SnapAssistEngine.snap(
-                candidate = updated.worldPosition,
-                anchors = anchors,
-                cameraScale = currentScale,
-                previousGuides = snapGuides.value,
-                baseThresholdPx = ICON_SNAP_THRESHOLD_SCREEN_PX,
-                axisInfluencePx = ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX,
-            )
-            dragDropController.setDraggedPosition(snapped.position)
-            snapGuides.value = snapped.guides
-        }
+        val updated = dragDropController.dragState.value ?: return
+        val anchors = buildSnapAnchors(excludedIconPackage = packageName)
+        val snapped = SnapAssistEngine.snap(
+            candidate = updated.worldPosition,
+            anchors = anchors,
+            cameraScale = currentScale,
+            previousGuides = snapGuides.value,
+            baseThresholdPx = ICON_SNAP_THRESHOLD_SCREEN_PX,
+            axisInfluencePx = ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX,
+        )
+        dragDropController.setDraggedPosition(snapped.position)
+        snapGuides.value = snapped.guides
     }
 
     fun onAppDragEnd(packageName: String) {
-        if (activeTool.value == LauncherToolId.Widgets) {
+        if (!isAppDragAllowed()) {
             dragDropController.cancelDrag()
+            snapGuides.value = emptyList()
+            transientIconSnapDragActive = false
             return
         }
         val final = dragDropController.endDrag() ?: return
@@ -636,8 +645,10 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onAppDragCancel() {
-        if (activeTool.value == LauncherToolId.Widgets) {
+        if (!isAppDragAllowed()) {
             dragDropController.cancelDrag()
+            snapGuides.value = emptyList()
+            transientIconSnapDragActive = false
             return
         }
         dragDropController.cancelDrag()
@@ -645,6 +656,29 @@ class LauncherViewModel @Inject constructor(
         transientIconSnapDragActive = false
         activeObjectDrag = null
         activeObjectDragSession = null
+    }
+
+    fun onAppAutoPanDelta(delta: ScreenPoint) {
+        if (!isAppDragAllowed()) return
+        if (dragDropController.dragState.value == null) return
+        if (delta.x == 0f && delta.y == 0f) return
+        val camera = viewportController.cameraState.value
+        gestureHandler.onTransform(
+            panDeltaPx = ScreenPoint(
+                x = -delta.x,
+                y = -delta.y,
+            ),
+            zoomFactor = 1f,
+            focusPx = ScreenPoint(
+                x = camera.viewportWidthPx / 2f,
+                y = camera.viewportHeightPx / 2f,
+            ),
+        )
+    }
+
+    private fun isAppDragAllowed(): Boolean {
+        return activeTool.value == LauncherToolId.Edit &&
+            editSelectedTool.value == CanvasEditToolId.Move
     }
 
     fun onToolsToggle() {
@@ -665,6 +699,13 @@ class LauncherViewModel @Inject constructor(
 
     fun onEditClose() {
         closeEditTool()
+    }
+
+    fun onEditUndo() {
+        if (activeTool.value != LauncherToolId.Edit) return
+        val snapshot = editUndoStack.pollLast() ?: return
+        applyUndoSnapshot(snapshot)
+        editCanUndo.value = editUndoStack.isNotEmpty()
     }
 
     fun onWidgetsClose() {
@@ -810,6 +851,7 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit) return
         when (editSelectedTool.value) {
             CanvasEditToolId.StickyNote -> {
+                pushEditUndoSnapshot()
                 val noteId = nextCanvasId(prefix = "sticky")
                 val note = CanvasStickyNoteUiState(
                     id = noteId,
@@ -831,6 +873,7 @@ class LauncherViewModel @Inject constructor(
             }
 
             CanvasEditToolId.Text -> {
+                pushEditUndoSnapshot()
                 val textId = nextCanvasId(prefix = "text")
                 val text = CanvasTextObjectUiState(
                     id = textId,
@@ -851,6 +894,7 @@ class LauncherViewModel @Inject constructor(
             }
 
             CanvasEditToolId.Frame -> {
+                pushEditUndoSnapshot()
                 frameDraft.value = null
                 createFrame(
                     center = worldPoint,
@@ -883,6 +927,7 @@ class LauncherViewModel @Inject constructor(
     fun onEditFrameDragEnd() {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Frame) return
         val draft = frameDraft.value ?: return
+        pushEditUndoSnapshot()
         val left = min(draft.startCorner.x, draft.endCorner.x)
         val right = max(draft.startCorner.x, draft.endCorner.x)
         val top = min(draft.startCorner.y, draft.endCorner.y)
@@ -906,9 +951,11 @@ class LauncherViewModel @Inject constructor(
     fun onEditSelectionDragStart(worldPoint: WorldPoint) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         if (!selectedObjects.value.isEmpty) return
+        selectionMoveUndoCaptured = false
         cancelCameraFlightAnimation()
         activeObjectDrag = null
         activeObjectDragSession = null
+        selectionMoveUndoCaptured = false
         activeFrameResizeSession = null
         activeSelectionResizeSession = null
         selectedFrameIdForResize.value = null
@@ -928,6 +975,7 @@ class LauncherViewModel @Inject constructor(
     fun onEditSelectionDragEnd() {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         val draft = selectionDraft.value ?: return
+        selectionMoveUndoCaptured = false
         selectionDraft.value = null
         val rawBounds = worldBoundsOfCorners(draft.startCorner, draft.endCorner)
         val hasArea = rawBounds.width >= SELECTION_MIN_SIZE_WORLD &&
@@ -945,6 +993,7 @@ class LauncherViewModel @Inject constructor(
 
     fun onEditSelectionClearTap() {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        selectionMoveUndoCaptured = false
         clearSelection()
         snapGuides.value = emptyList()
     }
@@ -953,6 +1002,10 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         val selection = selectedObjects.value
         if (selection.isEmpty) return
+        if (!selectionMoveUndoCaptured) {
+            pushEditUndoSnapshot()
+            selectionMoveUndoCaptured = true
+        }
         val scale = viewportController.cameraState.value.scale
         if (scale <= 0f) return
         val worldDeltaX = delta.x / scale
@@ -965,6 +1018,7 @@ class LauncherViewModel @Inject constructor(
 
     fun onEditSelectionMoveEnd() {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        selectionMoveUndoCaptured = false
         persistSelectionTransform(includeIcons = true)
         selectionBounds.value = computeSelectionBounds(selectedObjects.value)
     }
@@ -973,7 +1027,8 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         val selection = selectedObjects.value
         val bounds = selectionBounds.value ?: return
-        if (selection.isEmpty || !bounds.canResizeAndDelete) return
+        if (selection.isEmpty || !bounds.canResize) return
+        pushEditUndoSnapshot()
         activeSelectionResizeSession = SelectionResizeSession(
             handle = handle,
             selection = selection,
@@ -1068,7 +1123,10 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun onEditSelectionDeleteTap() {
-        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
+        if (activeTool.value != LauncherToolId.Edit) return
+        val selection = selectedObjects.value
+        if (selection.isEmpty) return
+        pushEditUndoSnapshot()
         deleteSelectionWithoutIcons()
     }
 
@@ -1113,6 +1171,7 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Brush) return
         val stroke = activeStroke.value ?: return
         if (stroke.points.size >= 2) {
+            pushEditUndoSnapshot()
             completedStrokes.update { it + stroke }
             persistStroke(stroke)
         }
@@ -1123,13 +1182,24 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Delete) return
         val currentSelectionBounds = selectionBounds.value
         if (currentSelectionBounds != null &&
-            currentSelectionBounds.canResizeAndDelete &&
+            currentSelectionBounds.canDelete &&
             currentSelectionBounds.contains(worldPoint)
         ) {
+            pushEditUndoSnapshot()
             deleteSelectionWithoutIcons()
             return
         }
         val radiusWorld = ERASER_RADIUS_SCREEN_PX / viewportController.cameraState.value.scale
+        val shouldDeleteStroke = completedStrokes.value.any { stroke ->
+            stroke.points.any { point ->
+                val dx = point.x - worldPoint.x
+                val dy = point.y - worldPoint.y
+                (dx * dx + dy * dy) <= radiusWorld * radiusWorld
+            }
+        }
+        if (shouldDeleteStroke) {
+            pushEditUndoSnapshot()
+        }
         val removedStrokeIds = mutableListOf<String>()
         completedStrokes.update { strokes ->
             strokes.filterNot { stroke ->
@@ -1163,6 +1233,7 @@ class LauncherViewModel @Inject constructor(
     ) {
         if (activeTool.value != LauncherToolId.Edit) return
         if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            pushEditUndoSnapshot()
             deleteStickyNote(noteId)
             return
         }
@@ -1226,6 +1297,7 @@ class LauncherViewModel @Inject constructor(
     fun onEditTextTap(textId: String) {
         if (activeTool.value != LauncherToolId.Edit) return
         if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            pushEditUndoSnapshot()
             deleteTextObject(textId)
             return
         }
@@ -1245,9 +1317,13 @@ class LauncherViewModel @Inject constructor(
         )
     }
 
-    fun onEditFrameTap(frameId: String) {
+    fun onEditFrameTap(
+        frameId: String,
+        displayedTitle: String,
+    ) {
         if (activeTool.value != LauncherToolId.Edit) return
         if (editSelectedTool.value == CanvasEditToolId.Delete) {
+            pushEditUndoSnapshot()
             deleteFrameObject(frameId)
             return
         }
@@ -1256,12 +1332,27 @@ class LauncherViewModel @Inject constructor(
         activeWidgetResizeSession = null
         val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
         editSelectedColorArgb.value = frame.colorArgb
+        val initialTitle = frame.title.ifBlank { displayedTitle }
         openInlineEditor(
             titleResId = R.string.edit_inline_title_edit_frame,
             placeholderResId = R.string.edit_inline_placeholder_frame_title,
-            value = frame.title,
+            value = initialTitle,
             target = CanvasInlineEditorTarget.EditFrame(frameId),
         )
+    }
+
+    fun onEditFrameDeleteTap(frameId: String) {
+        if (activeTool.value != LauncherToolId.Edit) return
+        pushEditUndoSnapshot()
+        deleteFrameObject(frameId)
+    }
+
+    fun onEditMoveBackgroundTap() {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
+        selectedFrameIdForResize.value = null
+        activeFrameResizeSession = null
+        selectedWidgetIdForResize.value = null
+        activeWidgetResizeSession = null
     }
 
     fun onEditFrameBorderTap(frameId: String) {
@@ -1276,6 +1367,7 @@ class LauncherViewModel @Inject constructor(
     ) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Move) return
         if (frameObjects.value.none { it.id == frameId }) return
+        pushEditUndoSnapshot()
         selectedFrameIdForResize.value = frameId
         activeFrameResizeSession = FrameResizeSession(
             frameId = frameId,
@@ -1328,6 +1420,9 @@ class LauncherViewModel @Inject constructor(
         val isEditMove = activeTool.value == LauncherToolId.Edit && editSelectedTool.value == CanvasEditToolId.Move
         val isWidgetMove = activeTool.value == LauncherToolId.Widgets && target is CanvasObjectDragTarget.Widget
         if (!isEditMove && !isWidgetMove) return
+        if (isEditMove) {
+            pushEditUndoSnapshot()
+        }
         cancelCameraFlightAnimation()
         val initialPosition = currentObjectPosition(target) ?: return
         val snapAnchors = buildSnapAnchors(excludedObject = target)
@@ -1474,6 +1569,19 @@ class LauncherViewModel @Inject constructor(
 
     fun onEditInlineEditorValueChanged(value: String) {
         if (activeTool.value != LauncherToolId.Edit) return
+        when (val target = editInlineEditor.value.target) {
+            is CanvasInlineEditorTarget.EditSticky,
+            is CanvasInlineEditorTarget.EditText,
+            is CanvasInlineEditorTarget.EditFrame,
+            -> {
+                if (inlineEditorUndoCapturedTarget != target) {
+                    pushEditUndoSnapshot()
+                    inlineEditorUndoCapturedTarget = target
+                }
+            }
+
+            else -> Unit
+        }
         editInlineEditor.update { it.copy(value = value) }
         when (val target = editInlineEditor.value.target) {
             is CanvasInlineEditorTarget.EditSticky -> {
@@ -1576,6 +1684,7 @@ class LauncherViewModel @Inject constructor(
                 }
             }
         }
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState()
     }
 
@@ -1641,11 +1750,20 @@ class LauncherViewModel @Inject constructor(
                 else -> Unit
             }
         }
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState()
     }
 
     fun onEditClearCustomElements() {
         if (activeTool.value != LauncherToolId.Edit) return
+        if (frameObjects.value.isNotEmpty() ||
+            stickyNotes.value.isNotEmpty() ||
+            textObjects.value.isNotEmpty() ||
+            widgets.value.isNotEmpty() ||
+            completedStrokes.value.isNotEmpty()
+        ) {
+            pushEditUndoSnapshot()
+        }
         frameObjects.value = emptyList()
         frameDraft.value = null
         selectedFrameIdForResize.value = null
@@ -1661,9 +1779,11 @@ class LauncherViewModel @Inject constructor(
         snapGuides.value = emptyList()
         activeObjectDrag = null
         activeObjectDragSession = null
+        selectionMoveUndoCaptured = false
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState()
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching { canvasEditDao.clearAllCustomElements() }
@@ -1697,6 +1817,7 @@ class LauncherViewModel @Inject constructor(
 
     fun onSearchLaunchTopMatch() {
         val packageName = searchMatches.value.firstOrNull()?.packageName ?: return
+        closeSearchTool(restoreViewport = false)
         onAppClick(packageName)
     }
 
@@ -1789,6 +1910,7 @@ class LauncherViewModel @Inject constructor(
         snapGuides.value = emptyList()
         activeObjectDrag = null
         activeObjectDragSession = null
+        selectionMoveUndoCaptured = false
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
@@ -1798,6 +1920,7 @@ class LauncherViewModel @Inject constructor(
         selectionDraft.value = null
         selectedObjects.value = CanvasSelectionUiState()
         selectionBounds.value = null
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         transientIconSnapDragActive = false
     }
 
@@ -1864,6 +1987,7 @@ class LauncherViewModel @Inject constructor(
         isToolsExpanded.value = false
         editSelectedTool.value = CanvasEditToolId.Move
         activeStroke.value = null
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState()
         snapGuides.value = emptyList()
         activeObjectDrag = null
@@ -2221,6 +2345,11 @@ class LauncherViewModel @Inject constructor(
             .filter { frame -> bounds.containsRect(frame.worldBounds()) }
             .map { frame -> frame.id }
             .toSet()
+        val selectedStickyNotes = stickyNotes.value
+            .asSequence()
+            .filter { note -> bounds.containsRect(note.worldBounds()) }
+            .map { note -> note.id }
+            .toSet()
         val selectedTexts = textObjects.value
             .asSequence()
             .filter { text -> bounds.containsRect(text.estimatedWorldBounds()) }
@@ -2236,6 +2365,7 @@ class LauncherViewModel @Inject constructor(
         return CanvasSelectionUiState(
             packageNames = selectedPackages,
             frameIds = selectedFrames,
+            stickyIds = selectedStickyNotes,
             textIds = selectedTexts,
             strokeIds = selectedStrokes,
         )
@@ -2262,6 +2392,10 @@ class LauncherViewModel @Inject constructor(
                 .asSequence()
                 .filter { it.id in selection.frameIds }
                 .forEach { add(it.worldBounds()) }
+            stickyNotes.value
+                .asSequence()
+                .filter { it.id in selection.stickyIds }
+                .forEach { add(it.worldBounds()) }
             textObjects.value
                 .asSequence()
                 .filter { it.id in selection.textIds }
@@ -2284,7 +2418,20 @@ class LauncherViewModel @Inject constructor(
             right = right,
             bottom = bottom,
             hasIcons = hasIcons,
-            canResizeAndDelete = !hasIcons && !selection.isEmpty,
+            canResize = !hasIcons &&
+                selection.stickyIds.isEmpty() &&
+                (
+                    selection.frameIds.isNotEmpty() ||
+                        selection.textIds.isNotEmpty() ||
+                        selection.strokeIds.isNotEmpty()
+                    ),
+            canDelete = !selection.isEmpty &&
+                (
+                    selection.frameIds.isNotEmpty() ||
+                        selection.stickyIds.isNotEmpty() ||
+                        selection.textIds.isNotEmpty() ||
+                        selection.strokeIds.isNotEmpty()
+                    ),
         )
     }
 
@@ -2311,6 +2458,22 @@ class LauncherViewModel @Inject constructor(
             frameObjects.update { frames ->
                 frames.map { current ->
                     if (current.id !in selection.frameIds) {
+                        current
+                    } else {
+                        current.copy(
+                            center = WorldPoint(
+                                x = current.center.x + deltaXWorld,
+                                y = current.center.y + deltaYWorld,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (selection.stickyIds.isNotEmpty()) {
+            stickyNotes.update { notes ->
+                notes.map { current ->
+                    if (current.id !in selection.stickyIds) {
                         current
                     } else {
                         current.copy(
@@ -2462,6 +2625,12 @@ class LauncherViewModel @Inject constructor(
                 .filter { it.id in selection.frameIds }
                 .forEach(::persistFrameObject)
         }
+        if (selection.stickyIds.isNotEmpty()) {
+            stickyNotes.value
+                .asSequence()
+                .filter { it.id in selection.stickyIds }
+                .forEach(::persistStickyNote)
+        }
         if (selection.textIds.isNotEmpty()) {
             textObjects.value
                 .asSequence()
@@ -2491,17 +2660,27 @@ class LauncherViewModel @Inject constructor(
 
     private fun deleteSelectionWithoutIcons() {
         val selection = selectedObjects.value
-        if (selection.isEmpty || selection.hasIcons) return
+        if (selection.isEmpty) return
         val frameIds = selection.frameIds
-        val textIds = selection.textIds
-        val strokeIds = selection.strokeIds
-        if (frameIds.isEmpty() && textIds.isEmpty() && strokeIds.isEmpty()) {
-            clearSelection()
+        val frameContained = collectContainedObjectsForFrames(frameIds)
+        val stickyIds = selection.stickyIds + frameContained.stickyIds
+        val textIds = selection.textIds + frameContained.textIds
+        val strokeIds = selection.strokeIds + frameContained.strokeIds
+        val widgetIds = frameContained.widgetIds
+        if (frameIds.isEmpty() &&
+            stickyIds.isEmpty() &&
+            textIds.isEmpty() &&
+            strokeIds.isEmpty() &&
+            widgetIds.isEmpty()
+        ) {
+            selectionBounds.value = computeSelectionBounds(selection)
             return
         }
 
         frameObjects.update { frames -> frames.filterNot { it.id in frameIds } }
+        stickyNotes.update { notes -> notes.filterNot { it.id in stickyIds } }
         textObjects.update { texts -> texts.filterNot { it.id in textIds } }
+        widgets.update { canvasWidgets -> canvasWidgets.filterNot { it.id in widgetIds } }
         completedStrokes.update { strokes -> strokes.filterNot { it.id in strokeIds } }
         if (selectedFrameIdForResize.value in frameIds) {
             selectedFrameIdForResize.value = null
@@ -2509,22 +2688,42 @@ class LauncherViewModel @Inject constructor(
         if (activeFrameResizeSession?.frameId in frameIds) {
             activeFrameResizeSession = null
         }
+        if (selectedWidgetIdForResize.value in widgetIds) {
+            selectedWidgetIdForResize.value = null
+        }
+        if (activeWidgetResizeSession?.widgetId in widgetIds) {
+            activeWidgetResizeSession = null
+        }
         val inlineTarget = editInlineEditor.value.target
         val removedInlineTarget = when (inlineTarget) {
             is CanvasInlineEditorTarget.EditFrame -> inlineTarget.id in frameIds
+            is CanvasInlineEditorTarget.EditSticky -> inlineTarget.id in stickyIds
             is CanvasInlineEditorTarget.EditText -> inlineTarget.id in textIds
             else -> false
         }
         if (removedInlineTarget) {
             editInlineEditor.value = CanvasInlineEditorUiState()
         }
-        clearSelection()
+        val remainingSelection = if (selection.packageNames.isNotEmpty()) {
+            CanvasSelectionUiState(packageNames = selection.packageNames)
+        } else {
+            CanvasSelectionUiState()
+        }
+        selectedObjects.value = remainingSelection
+        selectionBounds.value = computeSelectionBounds(remainingSelection)
+        activeSelectionResizeSession = null
 
         viewModelScope.launch(dispatchersProvider.io) {
             frameIds.forEach { frameId ->
                 runCatching { canvasEditDao.deleteFrameObjectById(frameId) }
                     .onFailure { throwable ->
                         Log.w(TAG, "Failed to delete selected frame $frameId", throwable)
+                    }
+            }
+            stickyIds.forEach { stickyId ->
+                runCatching { canvasEditDao.deleteStickyNoteById(stickyId) }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to delete selected sticky note $stickyId", throwable)
                     }
             }
             textIds.forEach { textId ->
@@ -2539,7 +2738,52 @@ class LauncherViewModel @Inject constructor(
                         Log.w(TAG, "Failed to delete selected stroke $strokeId", throwable)
                     }
             }
+            widgetIds.forEach { widgetId ->
+                runCatching { canvasEditDao.deleteWidgetById(widgetId) }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to delete selected widget $widgetId", throwable)
+                    }
+            }
         }
+    }
+
+    private fun collectContainedObjectsForFrames(frameIds: Set<String>): ContainedSelectionIds {
+        if (frameIds.isEmpty()) return ContainedSelectionIds()
+        val frameBounds = frameObjects.value
+            .asSequence()
+            .filter { frame -> frame.id in frameIds }
+            .map { frame -> frame.worldBounds() }
+            .toList()
+        if (frameBounds.isEmpty()) return ContainedSelectionIds()
+        val stickyIds = stickyNotes.value
+            .asSequence()
+            .filter { note -> frameBounds.any { bounds -> bounds.containsRect(note.worldBounds()) } }
+            .map { note -> note.id }
+            .toSet()
+        val textIds = textObjects.value
+            .asSequence()
+            .filter { text -> frameBounds.any { bounds -> bounds.containsRect(text.estimatedWorldBounds()) } }
+            .map { text -> text.id }
+            .toSet()
+        val strokeIds = completedStrokes.value
+            .asSequence()
+            .filter { stroke ->
+                val strokeBounds = stroke.worldBoundsWithStrokeWidth() ?: return@filter false
+                frameBounds.any { bounds -> bounds.containsRect(strokeBounds) }
+            }
+            .map { stroke -> stroke.id }
+            .toSet()
+        val widgetIds = widgets.value
+            .asSequence()
+            .filter { widget -> frameBounds.any { bounds -> bounds.containsRect(widget.worldBounds()) } }
+            .map { widget -> widget.id }
+            .toSet()
+        return ContainedSelectionIds(
+            stickyIds = stickyIds,
+            textIds = textIds,
+            strokeIds = strokeIds,
+            widgetIds = widgetIds,
+        )
     }
 
     private fun pruneSelectionToExistingObjects() {
@@ -2551,11 +2795,13 @@ class LauncherViewModel @Inject constructor(
         }
         val appPackages = appsState.value.mapTo(HashSet()) { it.packageName }
         val frameIds = frameObjects.value.mapTo(HashSet()) { it.id }
+        val stickyIds = stickyNotes.value.mapTo(HashSet()) { it.id }
         val textIds = textObjects.value.mapTo(HashSet()) { it.id }
         val strokeIds = completedStrokes.value.mapTo(HashSet()) { it.id }
         val pruned = CanvasSelectionUiState(
             packageNames = current.packageNames.filterTo(LinkedHashSet()) { it in appPackages },
             frameIds = current.frameIds.filterTo(LinkedHashSet()) { it in frameIds },
+            stickyIds = current.stickyIds.filterTo(LinkedHashSet()) { it in stickyIds },
             textIds = current.textIds.filterTo(LinkedHashSet()) { it in textIds },
             strokeIds = current.strokeIds.filterTo(LinkedHashSet()) { it in strokeIds },
         )
@@ -2564,6 +2810,131 @@ class LauncherViewModel @Inject constructor(
             activeSelectionResizeSession = null
         }
         selectionBounds.value = computeSelectionBounds(pruned)
+    }
+
+    private fun pushEditUndoSnapshot() {
+        if (activeTool.value != LauncherToolId.Edit) return
+        val snapshot = EditUndoSnapshot(
+            frames = frameObjects.value,
+            stickyNotes = stickyNotes.value,
+            textObjects = textObjects.value,
+            widgets = widgets.value,
+            strokes = completedStrokes.value,
+        )
+        if (editUndoStack.peekLast() == snapshot) return
+        if (editUndoStack.size >= EDIT_UNDO_MAX_SIZE) {
+            editUndoStack.removeFirst()
+        }
+        editUndoStack.addLast(snapshot)
+        editCanUndo.value = true
+    }
+
+    private fun applyUndoSnapshot(snapshot: EditUndoSnapshot) {
+        frameObjects.value = snapshot.frames
+        stickyNotes.value = snapshot.stickyNotes
+        textObjects.value = snapshot.textObjects
+        widgets.value = snapshot.widgets
+        completedStrokes.value = snapshot.strokes
+        frameDraft.value = null
+        selectionDraft.value = null
+        selectedObjects.value = CanvasSelectionUiState()
+        selectionBounds.value = null
+        selectedFrameIdForResize.value = null
+        selectedWidgetIdForResize.value = null
+        activeFrameResizeSession = null
+        activeWidgetResizeSession = null
+        activeSelectionResizeSession = null
+        activeStroke.value = null
+        activeObjectDrag = null
+        activeObjectDragSession = null
+        selectionMoveUndoCaptured = false
+        snapGuides.value = emptyList()
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
+        editInlineEditor.value = CanvasInlineEditorUiState()
+        persistUndoSnapshot(snapshot)
+    }
+
+    private fun persistUndoSnapshot(snapshot: EditUndoSnapshot) {
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching {
+                canvasEditDao.clearAllCustomElements()
+                snapshot.frames.forEach { frame ->
+                    canvasEditDao.upsertFrameObject(
+                        CanvasFrameObjectEntity(
+                            id = frame.id,
+                            title = frame.title,
+                            centerX = frame.center.x,
+                            centerY = frame.center.y,
+                            widthWorld = frame.widthWorld,
+                            heightWorld = frame.heightWorld,
+                            colorArgb = frame.colorArgb,
+                        ),
+                    )
+                }
+                snapshot.stickyNotes.forEach { note ->
+                    canvasEditDao.upsertStickyNote(
+                        CanvasStickyNoteEntity(
+                            id = note.id,
+                            text = note.text,
+                            centerX = note.center.x,
+                            centerY = note.center.y,
+                            sizeWorld = note.sizeWorld,
+                            textSizeWorld = note.textSizeWorld,
+                            colorArgb = note.colorArgb,
+                        ),
+                    )
+                }
+                snapshot.textObjects.forEach { text ->
+                    canvasEditDao.upsertTextObject(
+                        CanvasTextObjectEntity(
+                            id = text.id,
+                            text = text.text,
+                            x = text.position.x,
+                            y = text.position.y,
+                            textSizeWorld = text.textSizeWorld,
+                            colorArgb = text.colorArgb,
+                        ),
+                    )
+                }
+                snapshot.widgets.forEach { widget ->
+                    canvasEditDao.upsertWidget(
+                        CanvasWidgetEntity(
+                            id = widget.id,
+                            type = widget.type.name,
+                            centerX = widget.center.x,
+                            centerY = widget.center.y,
+                            widthWorld = widget.widthWorld,
+                            heightWorld = widget.heightWorld,
+                            colorArgb = widget.colorArgb,
+                        ),
+                    )
+                }
+                snapshot.strokes.forEach { stroke ->
+                    canvasEditDao.upsertStrokeWithPoints(
+                        stroke = CanvasStrokeEntity(
+                            id = stroke.id,
+                            colorArgb = stroke.colorArgb,
+                            widthWorld = stroke.widthWorld,
+                        ),
+                        points = stroke.points.mapIndexed { index, point ->
+                            CanvasStrokePointEntity(
+                                strokeId = stroke.id,
+                                pointIndex = index,
+                                x = point.x,
+                                y = point.y,
+                            )
+                        },
+                    )
+                }
+            }.onFailure { throwable ->
+                Log.w(TAG, "Failed to persist undo snapshot", throwable)
+            }
+        }
+    }
+
+    private fun clearEditUndoHistory() {
+        editUndoStack.clear()
+        editCanUndo.value = false
     }
 
     private fun transformFrameByBounds(
@@ -2692,6 +3063,7 @@ class LauncherViewModel @Inject constructor(
         selectedObjects.value = CanvasSelectionUiState()
         selectionBounds.value = null
         completedStrokes.value = persistedStrokes
+        clearEditUndoHistory()
 
         nextCanvasObjectId = max(
             nextCanvasObjectId,
@@ -2878,6 +3250,7 @@ class LauncherViewModel @Inject constructor(
 
     private fun deleteStickyNote(id: String) {
         stickyNotes.update { notes -> notes.filterNot { note -> note.id == id } }
+        pruneSelectionToExistingObjects()
         viewModelScope.launch(dispatchersProvider.io) {
             runCatching { canvasEditDao.deleteStickyNoteById(id) }
                 .onFailure { throwable ->
@@ -2954,6 +3327,7 @@ class LauncherViewModel @Inject constructor(
         target: CanvasInlineEditorTarget,
         isDraft: Boolean = false,
     ) {
+        inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState(
             isVisible = true,
             titleResId = titleResId,
@@ -3100,10 +3474,10 @@ class LauncherViewModel @Inject constructor(
 
     private companion object {
         private const val TAG = "LauncherViewModel"
-        private const val ICON_SNAP_THRESHOLD_SCREEN_PX = 9f
-        private const val ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX = 88f
-        private const val OBJECT_SNAP_THRESHOLD_SCREEN_PX = 12f
-        private const val OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX = 120f
+        private const val ICON_SNAP_THRESHOLD_SCREEN_PX = 6f
+        private const val ICON_SNAP_AXIS_INFLUENCE_SCREEN_PX = 64f
+        private const val OBJECT_SNAP_THRESHOLD_SCREEN_PX = 8f
+        private const val OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX = 92f
         private const val ICON_INITIAL_PRIORITY_COUNT = 54
         private const val ICON_BACKGROUND_WARMUP_BATCH_SIZE = 32
         private const val ICON_VIEWPORT_PRIORITY_COUNT = 40
@@ -3133,6 +3507,7 @@ class LauncherViewModel @Inject constructor(
         private const val SELECTION_RESIZE_MIN_HEIGHT_WORLD = 72f
         private const val TEXT_RESIZE_MIN_SIZE_WORLD = 10f
         private const val TEXT_RESIZE_MAX_SIZE_WORLD = 224f
+        private const val EDIT_UNDO_MAX_SIZE = 40
     }
 }
 
@@ -3241,6 +3616,21 @@ private data class SelectionResizeSession(
     val initialStrokes: Map<String, CanvasStrokeUiState>,
     var accumulatedDeltaXWorld: Float = 0f,
     var accumulatedDeltaYWorld: Float = 0f,
+)
+
+private data class EditUndoSnapshot(
+    val frames: List<CanvasFrameObjectUiState>,
+    val stickyNotes: List<CanvasStickyNoteUiState>,
+    val textObjects: List<CanvasTextObjectUiState>,
+    val widgets: List<CanvasWidgetUiState>,
+    val strokes: List<CanvasStrokeUiState>,
+)
+
+private data class ContainedSelectionIds(
+    val stickyIds: Set<String> = emptySet(),
+    val textIds: Set<String> = emptySet(),
+    val strokeIds: Set<String> = emptySet(),
+    val widgetIds: Set<String> = emptySet(),
 )
 
 private fun CanvasFrameObjectUiState.resizeByHandleDrag(

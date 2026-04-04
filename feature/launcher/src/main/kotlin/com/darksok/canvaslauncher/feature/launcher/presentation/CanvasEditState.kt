@@ -83,6 +83,7 @@ data class CanvasSelectionDraftUiState(
 data class CanvasSelectionUiState(
     val packageNames: Set<String> = emptySet(),
     val frameIds: Set<String> = emptySet(),
+    val stickyIds: Set<String> = emptySet(),
     val textIds: Set<String> = emptySet(),
     val strokeIds: Set<String> = emptySet(),
 ) {
@@ -90,7 +91,11 @@ data class CanvasSelectionUiState(
         get() = packageNames.isNotEmpty()
 
     val isEmpty: Boolean
-        get() = packageNames.isEmpty() && frameIds.isEmpty() && textIds.isEmpty() && strokeIds.isEmpty()
+        get() = packageNames.isEmpty() &&
+            frameIds.isEmpty() &&
+            stickyIds.isEmpty() &&
+            textIds.isEmpty() &&
+            strokeIds.isEmpty()
 }
 
 data class CanvasSelectionBoundsUiState(
@@ -99,7 +104,8 @@ data class CanvasSelectionBoundsUiState(
     val right: Float,
     val bottom: Float,
     val hasIcons: Boolean,
-    val canResizeAndDelete: Boolean,
+    val canResize: Boolean,
+    val canDelete: Boolean,
 ) {
     fun contains(point: WorldPoint): Boolean {
         return point.x in left..right && point.y in top..bottom
@@ -143,6 +149,7 @@ data class EditUiState(
     val brushWidthWorld: Float = CanvasEditDefaults.DEFAULT_BRUSH_WIDTH_WORLD,
     val textSizeWorld: Float = CanvasEditDefaults.DEFAULT_TEXT_SIZE_WORLD,
     val inlineEditor: CanvasInlineEditorUiState = CanvasInlineEditorUiState(),
+    val canUndo: Boolean = false,
 )
 
 object CanvasEditDefaults {

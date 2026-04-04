@@ -156,6 +156,8 @@ fun LauncherRoute(
                         cameraState = uiState.cameraState,
                         apps = uiState.visibleApps,
                         draggingPackageName = uiState.draggingPackageName,
+                        appDragEnabled = uiState.toolsState.isEditActive &&
+                            uiState.toolsState.edit.selectedTool == CanvasEditToolId.Move,
                         transformEnabled = !uiState.toolsState.isEditActive && !uiState.toolsState.isWidgetsActive,
                         labelsEnabled = true,
                         backgroundConfig = backgroundConfig,
@@ -170,6 +172,7 @@ fun LauncherRoute(
                         onAppDragDelta = viewModel::onAppDragDelta,
                         onAppDragEnd = viewModel::onAppDragEnd,
                         onAppDragCancel = viewModel::onAppDragCancel,
+                        onAppAutoPanDelta = viewModel::onAppAutoPanDelta,
                     )
 
                     CanvasEditLayer(
@@ -219,6 +222,8 @@ fun LauncherRoute(
                         onWidgetResizeEnd = viewModel::onWidgetResizeEnd,
                         onWidgetDeleteTap = viewModel::onWidgetDeleteSelected,
                         onFrameTap = viewModel::onEditFrameTap,
+                        onFrameDeleteTap = viewModel::onEditFrameDeleteTap,
+                        onMoveBackgroundTap = viewModel::onEditMoveBackgroundTap,
                         onFrameBorderTap = viewModel::onEditFrameBorderTap,
                         onFrameResizeStart = viewModel::onEditFrameResizeStart,
                         onFrameResizeDrag = viewModel::onEditFrameResizeDrag,
@@ -317,6 +322,7 @@ fun LauncherRoute(
                             onEditInlineEditorValueChanged = viewModel::onEditInlineEditorValueChanged,
                             onEditInlineEditorConfirm = viewModel::onEditInlineEditorConfirm,
                             onEditInlineEditorCancel = viewModel::onEditInlineEditorCancel,
+                            onEditUndo = viewModel::onEditUndo,
                             onEditClearCustomElements = viewModel::onEditClearCustomElements,
                             onWidgetsClose = viewModel::onWidgetsClose,
                             onWidgetCatalogItemSelected = viewModel::onWidgetCatalogItemSelected,
