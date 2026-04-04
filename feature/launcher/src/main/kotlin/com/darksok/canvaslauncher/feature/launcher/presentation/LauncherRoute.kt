@@ -156,6 +156,9 @@ fun LauncherRoute(
                         cameraState = uiState.cameraState,
                         apps = uiState.visibleApps,
                         draggingPackageName = uiState.draggingPackageName,
+                        appDragEnabled = uiState.toolsState.isEditActive &&
+                            uiState.toolsState.edit.selectedTool == CanvasEditToolId.Move,
+                        transformEnabled = !uiState.toolsState.isEditActive && !uiState.toolsState.isWidgetsActive,
                         labelsEnabled = true,
                         backgroundConfig = backgroundConfig,
                         onViewportSizeChanged = { size ->
@@ -169,6 +172,7 @@ fun LauncherRoute(
                         onAppDragDelta = viewModel::onAppDragDelta,
                         onAppDragEnd = viewModel::onAppDragEnd,
                         onAppDragCancel = viewModel::onAppDragCancel,
+                        onAppAutoPanDelta = viewModel::onAppAutoPanDelta,
                     )
 
                     CanvasEditLayer(
@@ -218,6 +222,8 @@ fun LauncherRoute(
                         onWidgetResizeEnd = viewModel::onWidgetResizeEnd,
                         onWidgetDeleteTap = viewModel::onWidgetDeleteSelected,
                         onFrameTap = viewModel::onEditFrameTap,
+                        onFrameDeleteTap = viewModel::onEditFrameDeleteTap,
+                        onMoveBackgroundTap = viewModel::onEditMoveBackgroundTap,
                         onFrameBorderTap = viewModel::onEditFrameBorderTap,
                         onFrameResizeStart = viewModel::onEditFrameResizeStart,
                         onFrameResizeDrag = viewModel::onEditFrameResizeDrag,
@@ -225,6 +231,10 @@ fun LauncherRoute(
                         onObjectDragStart = viewModel::onEditObjectDragStart,
                         onObjectDragDelta = viewModel::onEditObjectDragDelta,
                         onObjectDragEnd = viewModel::onEditObjectDragEnd,
+                        onObjectDragCancel = viewModel::onEditObjectDragCancel,
+                        onCanvasTransform = { pan, zoom, focus ->
+                            viewModel.onTransform(pan, zoom, focus)
+                        },
                     )
 
                     if (!uiState.toolsState.isSearchActive &&
@@ -312,6 +322,7 @@ fun LauncherRoute(
                             onEditInlineEditorValueChanged = viewModel::onEditInlineEditorValueChanged,
                             onEditInlineEditorConfirm = viewModel::onEditInlineEditorConfirm,
                             onEditInlineEditorCancel = viewModel::onEditInlineEditorCancel,
+                            onEditUndo = viewModel::onEditUndo,
                             onEditClearCustomElements = viewModel::onEditClearCustomElements,
                             onWidgetsClose = viewModel::onWidgetsClose,
                             onWidgetCatalogItemSelected = viewModel::onWidgetCatalogItemSelected,

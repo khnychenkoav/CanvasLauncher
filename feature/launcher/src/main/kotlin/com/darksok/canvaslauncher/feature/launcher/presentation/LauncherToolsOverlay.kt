@@ -31,7 +31,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
@@ -69,9 +72,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -101,6 +106,7 @@ fun LauncherToolsOverlay(
     onEditInlineEditorValueChanged: (String) -> Unit,
     onEditInlineEditorConfirm: () -> Unit,
     onEditInlineEditorCancel: () -> Unit,
+    onEditUndo: () -> Unit,
     onEditClearCustomElements: () -> Unit,
     onWidgetsClose: () -> Unit,
     onWidgetCatalogItemSelected: (CanvasWidgetType) -> Unit,
@@ -147,6 +153,7 @@ fun LauncherToolsOverlay(
     ) {
         val closeButtonSize = ToolPanelUiConstants.BUTTON_SIZE
         val panelMaxWidth = maxWidth
+        val panelMaxHeight = maxHeight
         val searchFieldMaxWidth =
             (maxWidth - closeButtonSize - ToolPanelUiConstants.SEARCH_ROW_GAP - 2.dp).coerceAtLeast(180.dp)
 
@@ -217,6 +224,7 @@ fun LauncherToolsOverlay(
                             onInlineEditorValueChanged = onEditInlineEditorValueChanged,
                             onInlineEditorConfirm = onEditInlineEditorConfirm,
                             onInlineEditorCancel = onEditInlineEditorCancel,
+                            onUndo = onEditUndo,
                             onClearCustomElements = onEditClearCustomElements,
                             onClose = onEditClose,
                         )
@@ -233,9 +241,22 @@ fun LauncherToolsOverlay(
 
                     else -> {
                         val quickTools = toolsState.tools.filterNot { it.id == LauncherToolId.Search }
+                        val quickToolsRows = quickTools.chunked(2)
+                        val singleLayerQuickToolsHeight =
+                            (ToolPanelUiConstants.BUTTON_SIZE * quickTools.size) +
+                                (ToolPanelUiConstants.ITEM_GAP * (quickTools.size - 1).coerceAtLeast(0))
+                        val twoLayerQuickToolsHeight =
+                            (ToolPanelUiConstants.BUTTON_SIZE * quickToolsRows.size) +
+                                (ToolPanelUiConstants.ITEM_GAP * (quickToolsRows.size - 1).coerceAtLeast(0))
+                        val panelControlsBaseHeight = (ToolPanelUiConstants.BUTTON_SIZE * 2) +
+                            (ToolPanelUiConstants.ITEM_GAP * 2)
+                        val useTwoLayerQuickTools = toolsState.isExpanded &&
+                            quickTools.size > 2 &&
+                            panelControlsBaseHeight + singleLayerQuickToolsHeight > panelMaxHeight &&
+                            panelControlsBaseHeight + twoLayerQuickToolsHeight <= panelMaxHeight
                         Column(
                             horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(ToolPanelUiConstants.ITEM_GAP),
                         ) {
                             ToolCircleButton(
                                 onClick = { onToolSelected(LauncherToolId.Search) },
@@ -259,47 +280,99 @@ fun LauncherToolsOverlay(
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.End,
-                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(ToolPanelUiConstants.ITEM_GAP),
                                 ) {
-                                    quickTools.forEach { tool ->
-                                        ToolCircleButton(
-                                            onClick = { onToolSelected(tool.id) },
-                                            modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
-                                        ) {
-                                            when (tool.id) {
-                                                LauncherToolId.AppsList -> {
-                                                    Icon(
-                                                        imageVector = Icons.AutoMirrored.Rounded.ViewList,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    )
-                                                }
+                                    if (useTwoLayerQuickTools) {
+                                        quickToolsRows.forEach { toolsRow ->
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                toolsRow.forEach { tool ->
+                                                    ToolCircleButton(
+                                                        onClick = { onToolSelected(tool.id) },
+                                                        modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
+                                                    ) {
+                                                        when (tool.id) {
+                                                            LauncherToolId.AppsList -> {
+                                                                Icon(
+                                                                    imageVector = Icons.AutoMirrored.Rounded.ViewList,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                )
+                                                            }
 
-                                                LauncherToolId.Edit -> {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Edit,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    )
-                                                }
+                                                            LauncherToolId.Edit -> {
+                                                                Icon(
+                                                                    imageVector = Icons.Rounded.Edit,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                )
+                                                            }
 
-                                                LauncherToolId.Settings -> {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Settings,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    )
-                                                }
+                                                            LauncherToolId.Settings -> {
+                                                                Icon(
+                                                                    imageVector = Icons.Rounded.Settings,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                )
+                                                            }
 
-                                                LauncherToolId.Widgets -> {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Widgets,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    )
-                                                }
+                                                            LauncherToolId.Widgets -> {
+                                                                Icon(
+                                                                    imageVector = Icons.Rounded.Widgets,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                )
+                                                            }
 
-                                                LauncherToolId.Search -> Unit
+                                                            LauncherToolId.Search -> Unit
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        quickTools.forEach { tool ->
+                                            ToolCircleButton(
+                                                onClick = { onToolSelected(tool.id) },
+                                                modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
+                                            ) {
+                                                when (tool.id) {
+                                                    LauncherToolId.AppsList -> {
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Rounded.ViewList,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        )
+                                                    }
+
+                                                    LauncherToolId.Edit -> {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.Edit,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        )
+                                                    }
+
+                                                    LauncherToolId.Settings -> {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.Settings,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        )
+                                                    }
+
+                                                    LauncherToolId.Widgets -> {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.Widgets,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        )
+                                                    }
+
+                                                    LauncherToolId.Search -> Unit
+                                                }
                                             }
                                         }
                                     }
@@ -558,6 +631,7 @@ private fun EditPanelContent(
     onInlineEditorValueChanged: (String) -> Unit,
     onInlineEditorConfirm: () -> Unit,
     onInlineEditorCancel: () -> Unit,
+    onUndo: () -> Unit,
     onClearCustomElements: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -566,79 +640,197 @@ private fun EditPanelContent(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            val editTools = listOf(
-                CanvasEditToolId.Move,
-                CanvasEditToolId.Brush,
-                CanvasEditToolId.Selection,
-                CanvasEditToolId.StickyNote,
-                CanvasEditToolId.Text,
-                CanvasEditToolId.Frame,
-                CanvasEditToolId.Delete,
-            )
-            editTools.forEachIndexed { index, toolId ->
-                ToolCircleButton(
-                    onClick = { onToolSelected(toolId) },
-                    modifier = Modifier
-                        .padding(start = if (index == 0) 0.dp else 4.dp)
-                        .size(38.dp),
-                    usePrimaryContainer = editState.selectedTool == toolId,
-                ) {
-                    when (toolId) {
-                        CanvasEditToolId.Move -> Icon(
-                            imageVector = Icons.Rounded.OpenWith,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.Brush -> Icon(
-                            imageVector = Icons.Rounded.Brush,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.Selection -> Icon(
-                            imageVector = Icons.Rounded.SelectAll,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.StickyNote -> Icon(
-                            imageVector = Icons.Rounded.Description,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.Text -> Icon(
-                            imageVector = Icons.Rounded.TextFields,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.Frame -> Icon(
-                            imageVector = Icons.Rounded.CropSquare,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        CanvasEditToolId.Delete -> Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
+        val editTools = listOf(
+            CanvasEditToolId.Move,
+            CanvasEditToolId.Brush,
+            CanvasEditToolId.Selection,
+            CanvasEditToolId.StickyNote,
+            CanvasEditToolId.Text,
+            CanvasEditToolId.Frame,
+            CanvasEditToolId.Delete,
+        )
+        val editToolButtonSize = 38.dp
+        val editToolGap = 4.dp
+        val closeButtonSize = 44.dp
+        val editToolsSingleRowWidth = (editToolButtonSize * editTools.size) +
+            (editToolGap * (editTools.size - 1).coerceAtLeast(0))
+        val requiredSingleRowWidth = editToolsSingleRowWidth + 6.dp + closeButtonSize
+        val useTwoLayerEditTools = requiredSingleRowWidth > maxWidth
+
+        if (useTwoLayerEditTools) {
+            val editToolRows = editTools.chunked((editTools.size + 1) / 2)
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                editToolRows.forEachIndexed { rowIndex, toolsRow ->
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        toolsRow.forEachIndexed { index, toolId ->
+                            ToolCircleButton(
+                                onClick = { onToolSelected(toolId) },
+                                modifier = Modifier
+                                    .padding(start = if (index == 0) 0.dp else editToolGap)
+                                    .size(editToolButtonSize),
+                                usePrimaryContainer = editState.selectedTool == toolId,
+                            ) {
+                                when (toolId) {
+                                    CanvasEditToolId.Move -> Icon(
+                                        imageVector = Icons.Rounded.OpenWith,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.Brush -> Icon(
+                                        imageVector = Icons.Rounded.Brush,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.Selection -> Icon(
+                                        imageVector = Icons.Rounded.SelectAll,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.StickyNote -> Icon(
+                                        imageVector = Icons.Rounded.Description,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.Text -> Icon(
+                                        imageVector = Icons.Rounded.TextFields,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.Frame -> Icon(
+                                        imageVector = Icons.Rounded.CropSquare,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                    CanvasEditToolId.Delete -> Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                        if (rowIndex == 0) {
+                            ToolCircleButton(
+                                onClick = onUndo,
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .size(closeButtonSize),
+                                usePrimaryContainer = editState.canUndo,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Undo,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                                        alpha = if (editState.canUndo) 1f else 0.42f,
+                                    ),
+                                )
+                            }
+                            ToolCircleButton(
+                                onClick = onClose,
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .size(closeButtonSize),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
                     }
                 }
             }
-
-            ToolCircleButton(
-                onClick = onClose,
-                modifier = Modifier
-                    .padding(start = 6.dp)
-                    .size(44.dp),
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                editTools.forEachIndexed { index, toolId ->
+                    ToolCircleButton(
+                        onClick = { onToolSelected(toolId) },
+                        modifier = Modifier
+                            .padding(start = if (index == 0) 0.dp else editToolGap)
+                            .size(editToolButtonSize),
+                        usePrimaryContainer = editState.selectedTool == toolId,
+                    ) {
+                        when (toolId) {
+                            CanvasEditToolId.Move -> Icon(
+                                imageVector = Icons.Rounded.OpenWith,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.Brush -> Icon(
+                                imageVector = Icons.Rounded.Brush,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.Selection -> Icon(
+                                imageVector = Icons.Rounded.SelectAll,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.StickyNote -> Icon(
+                                imageVector = Icons.Rounded.Description,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.Text -> Icon(
+                                imageVector = Icons.Rounded.TextFields,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.Frame -> Icon(
+                                imageVector = Icons.Rounded.CropSquare,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            CanvasEditToolId.Delete -> Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
+
+                ToolCircleButton(
+                    onClick = onUndo,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(closeButtonSize),
+                    usePrimaryContainer = editState.canUndo,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Undo,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                            alpha = if (editState.canUndo) 1f else 0.42f,
+                        ),
+                    )
+                }
+
+                ToolCircleButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(closeButtonSize),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
             }
         }
 
@@ -786,6 +978,35 @@ private fun EditInlineEditorPill(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val isMultilineInput = when (state.target) {
+        is CanvasInlineEditorTarget.EditSticky,
+        is CanvasInlineEditorTarget.NewSticky,
+        is CanvasInlineEditorTarget.EditText,
+        is CanvasInlineEditorTarget.NewText,
+        -> true
+
+        else -> false
+    }
+    var editorValue by remember(state.target, state.isVisible) {
+        mutableStateOf(
+            TextFieldValue(
+                text = state.value,
+                selection = TextRange(state.value.length),
+            ),
+        )
+    }
+    LaunchedEffect(state.value, state.target) {
+        if (state.value != editorValue.text) {
+            val maxIndex = state.value.length
+            editorValue = editorValue.copy(
+                text = state.value,
+                selection = TextRange(
+                    start = editorValue.selection.start.coerceIn(0, maxIndex),
+                    end = editorValue.selection.end.coerceIn(0, maxIndex),
+                ),
+            )
+        }
+    }
     val placeholderText = state.placeholderResId?.let { placeholderResId ->
         stringResource(id = placeholderResId)
     }.orEmpty()
@@ -800,43 +1021,79 @@ private fun EditInlineEditorPill(
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
         tonalElevation = 6.dp,
         modifier = Modifier
-            .height(50.dp)
-            .size(width = maxWidth, height = 50.dp),
+            .size(
+                width = maxWidth,
+                height = if (isMultilineInput) 132.dp else 50.dp,
+            )
+            .heightIn(min = 50.dp, max = 196.dp),
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = if (isMultilineInput) Alignment.Bottom else Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
-            BasicTextField(
-                value = state.value,
-                onValueChange = onValueChanged,
-                singleLine = true,
+            TextField(
+                value = editorValue,
+                onValueChange = { updated ->
+                    val sanitized = if (isMultilineInput) {
+                        updated
+                    } else {
+                        val sanitizedText = updated.text.replace('\n', ' ')
+                        val cursor = updated.selection.end.coerceIn(0, sanitizedText.length)
+                        updated.copy(
+                            text = sanitizedText,
+                            selection = TextRange(cursor),
+                            composition = null,
+                        )
+                    }
+                    editorValue = sanitized
+                    if (sanitized.text != state.value) {
+                        onValueChanged(sanitized.text)
+                    }
+                },
+                singleLine = !isMultilineInput,
+                maxLines = if (isMultilineInput) INLINE_EDITOR_MAX_LINES else 1,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onConfirm() }),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (state.value.isBlank() && placeholderText.isNotBlank()) {
-                            Text(
-                                text = placeholderText,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
-                            )
-                        }
-                        inner()
+                placeholder = {
+                    if (placeholderText.isNotBlank()) {
+                        Text(
+                            text = placeholderText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
+                        )
                     }
                 },
+                keyboardOptions = KeyboardOptions(
+                    imeAction = if (isMultilineInput) ImeAction.Default else ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (!isMultilineInput) {
+                            onConfirm()
+                        }
+                    },
+                ),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .padding(vertical = 2.dp),
             )
             ToolCircleButton(
                 onClick = onConfirm,
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .size(38.dp),
                 usePrimaryContainer = false,
             ) {
                 Icon(
@@ -935,7 +1192,10 @@ internal object SearchSuggestionTextFormatter {
     }
 }
 
+private const val INLINE_EDITOR_MAX_LINES = 10
+
 private object ToolPanelUiConstants {
     val BUTTON_SIZE = 56.dp
     val SEARCH_ROW_GAP = 10.dp
+    val ITEM_GAP = 10.dp
 }

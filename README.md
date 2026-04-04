@@ -49,7 +49,8 @@ The repository already contains a working launcher with a substantial feature se
 - world/screen coordinate transforms;
 - viewport culling for large app sets;
 - minimap overlay when zoomed out;
-- edge-gesture guard + interaction arbitration to reduce accidental conflicts.
+- edge-gesture guard + interaction arbitration to reduce accidental conflicts;
+- icon drag in Edit mode (`Move`) with snap guides, persistence, and edge auto-pan.
 
 ### App management and discovery
 - tap icon to launch app;
@@ -66,7 +67,9 @@ The repository already contains a working launcher with a substantial feature se
 - inline text/title editing;
 - object move/resize/delete;
 - multi-select with selection bounds;
-- snap guides and snap-assist behavior.
+- snap guides and snap-assist behavior;
+- edit undo stack for canvas objects;
+- selection includes sticky notes and supports frame-contained cascade delete.
 
 ### Layout intelligence
 - layouts: `SPIRAL`, `RECTANGLE`, `CIRCLE`, `OVAL`, `SMART_AUTO`, `ICON_COLOR`;
@@ -89,15 +92,16 @@ The repository already contains a working launcher with a substantial feature se
 |---|---|---|
 | Launcher role flow | Implemented | Onboarding + `HOME` role request/fallback |
 | Infinite canvas | Implemented | Pan/zoom, transforms, culling, minimap |
-| App dragging | Implemented | Persisted world coordinates |
+| App dragging | Implemented | Edit mode `Move`, snap-assist, edge auto-pan, persisted world coordinates |
 | Search and quick launch | Implemented | Ranked matches + launch top result |
 | Apps list management | Implemented | List search, jump to canvas, uninstall |
-| Edit mode objects | Implemented | Brush, notes, text, frames |
-| Multi-select edit operations | Implemented | Selection, resize, move, delete |
+| Edit mode objects | Implemented | Brush, notes, text, frames, basic widgets |
+| Multi-select edit operations | Implemented | Selection, resize, move, delete, frame-contained cascade delete |
+| Edit undo | Implemented | Undo stack for custom canvas element changes |
 | Smart semantic layout | Implemented | Grouping + auto labeled frames |
 | Icon-color layout | Implemented | Dominant-color analysis + auto frames |
 | Localization | Implemented | 6 explicit languages + system |
-| Widgets | Not implemented yet | Planned area |
+| Widgets | Partially implemented | Basic canvas widget flow (digital clock), more types planned |
 | Folders/icon packs | Not implemented yet | Planned area |
 | Cloud sync | Not implemented yet | Planned area |
 

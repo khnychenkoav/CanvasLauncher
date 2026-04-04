@@ -11,12 +11,24 @@ data class RankedSearchMatch(
     val score: Int,
 )
 
-private data class SearchVariant(
+class SearchIndex internal constructor(
+    internal val entries: List<IndexedApp>,
+    internal val entriesSortedByLabel: List<IndexedApp>,
+)
+
+internal data class IndexedApp(
+    val packageName: String,
+    val label: String,
+    val labelSearchText: SearchText,
+    val packageSearchText: SearchText,
+)
+
+internal data class SearchVariant(
     val value: String,
     val penalty: Int,
 )
 
-private data class SearchText(
+internal data class SearchText(
     val variants: List<SearchVariant>,
     val tokens: Set<String>,
     val expandedTokens: Set<String>,
@@ -24,18 +36,44 @@ private data class SearchText(
 
 object AppSearchEngine {
 
+    fun buildIndex(apps: List<CanvasApp>): SearchIndex {
+        val entries = apps.map { app ->
+            IndexedApp(
+                packageName = app.packageName,
+                label = app.label,
+                labelSearchText = buildSearchText(app.label),
+                packageSearchText = buildSearchText(app.packageName),
+            )
+        }
+        val sortedEntries = entries.sortedBy { entry -> entry.label.lowercase(Locale.ROOT) }
+        return SearchIndex(
+            entries = entries,
+            entriesSortedByLabel = sortedEntries,
+        )
+    }
+
     fun rankByLabel(
         query: String,
         apps: List<CanvasApp>,
     ): List<RankedSearchMatch> {
+        return rankByLabel(
+            query = query,
+            searchIndex = buildIndex(apps),
+        )
+    }
+
+    fun rankByLabel(
+        query: String,
+        searchIndex: SearchIndex,
+    ): List<RankedSearchMatch> {
         val queryText = buildSearchText(query)
         if (queryText.variants.isEmpty()) return emptyList()
 
-        return apps.mapNotNull { app ->
+        return searchIndex.entries.mapNotNull { app ->
             val score = score(
                 query = queryText,
-                label = buildSearchText(app.label),
-                packageName = buildSearchText(app.packageName),
+                label = app.labelSearchText,
+                packageName = app.packageSearchText,
             )
             if (score < 0) return@mapNotNull null
             RankedSearchMatch(

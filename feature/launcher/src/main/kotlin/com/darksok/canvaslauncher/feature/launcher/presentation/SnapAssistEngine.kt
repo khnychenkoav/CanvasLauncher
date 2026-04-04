@@ -87,7 +87,7 @@ internal object SnapAssistEngine {
         )
     }
 
-    private const val SNAP_THRESHOLD_SCREEN_PX = 12f
-    private const val SNAP_AXIS_INFLUENCE_SCREEN_PX = 120f
-    private const val SNAP_RELEASE_MULTIPLIER = 1.45f
+    private const val SNAP_THRESHOLD_SCREEN_PX = 10f
+    private const val SNAP_AXIS_INFLUENCE_SCREEN_PX = 96f
+    private const val SNAP_RELEASE_MULTIPLIER = 1.20f
 }
