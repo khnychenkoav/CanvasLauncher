@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class LauncherViewModel @Inject constructor(
     observeAppsUseCase: ObserveAppsUseCase,
     observeThemeModeUseCase: ObserveThemeModeUseCase,
@@ -164,10 +164,26 @@ class LauncherViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AppSearchEngine.buildIndex(emptyList()),
         )
+    private val debouncedSearchQuery = searchQuery
+        .debounce(SEARCH_MATCH_DEBOUNCE_MS)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = "",
+        )
+    private val debouncedAppsListQuery = appsListQuery
+        .debounce(SEARCH_MATCH_DEBOUNCE_MS)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = "",
+        )
 
     private val searchMatches = combine(
         appsSearchIndex,
-        searchQuery,
+        debouncedSearchQuery,
     ) { searchIndex, query ->
         searchIndex to query
     }.mapLatest { (searchIndex, query) ->
@@ -185,7 +201,7 @@ class LauncherViewModel @Inject constructor(
 
     private val appsListEntries = combine(
         appsSearchIndex,
-        appsListQuery,
+        debouncedAppsListQuery,
     ) { searchIndex, query ->
         searchIndex to query
     }.mapLatest { (searchIndex, query) ->
@@ -3047,6 +3063,7 @@ class LauncherViewModel @Inject constructor(
         private const val ICON_VIEWPORT_PRIORITY_COUNT = 40
         private const val ICON_VIEWPORT_WARMUP_DEBOUNCE_MS = 220L
         private const val SEARCH_BASE_OCCLUSION_PX = 64f
+        private const val SEARCH_MATCH_DEBOUNCE_MS = 28L
         private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
         private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
         private const val SEARCH_MIN_FOCUS_LIFT_PX = 32f
