@@ -9,6 +9,7 @@ import com.darksok.canvaslauncher.core.database.entity.CanvasStickyNoteEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokeEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasStrokePointEntity
 import com.darksok.canvaslauncher.core.database.entity.CanvasTextObjectEntity
+import com.darksok.canvaslauncher.core.database.entity.CanvasWidgetEntity
 import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.app.InstalledApp
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
@@ -218,10 +219,12 @@ class SettingsViewModelTest {
         override suspend fun getStickyNotes(): List<CanvasStickyNoteEntity> = emptyList()
         override suspend fun getTextObjects(): List<CanvasTextObjectEntity> = emptyList()
         override suspend fun getFrameObjects(): List<CanvasFrameObjectEntity> = emptyList()
+        override suspend fun getWidgets(): List<CanvasWidgetEntity> = emptyList()
         override suspend fun getStrokesWithPoints(): List<CanvasStrokeWithPointsEntity> = emptyList()
         override suspend fun upsertStickyNote(note: CanvasStickyNoteEntity) = Unit
         override suspend fun upsertTextObject(textObject: CanvasTextObjectEntity) = Unit
         override suspend fun upsertFrameObject(frameObject: CanvasFrameObjectEntity) = Unit
+        override suspend fun upsertWidget(widget: CanvasWidgetEntity) = Unit
         override suspend fun upsertStroke(stroke: CanvasStrokeEntity) = Unit
         override suspend fun insertStrokePoints(points: List<CanvasStrokePointEntity>) = Unit
         override suspend fun deleteStrokePointsByStrokeId(strokeId: String) = Unit
@@ -229,10 +232,12 @@ class SettingsViewModelTest {
         override suspend fun deleteStickyNoteById(id: String) = Unit
         override suspend fun deleteTextObjectById(id: String) = Unit
         override suspend fun deleteFrameObjectById(id: String) = Unit
+        override suspend fun deleteWidgetById(id: String) = Unit
         override suspend fun deleteAllStrokes() = Unit
         override suspend fun deleteAllStickyNotes() = Unit
         override suspend fun deleteAllTextObjects() = Unit
         override suspend fun deleteAllFrameObjects() = Unit
+        override suspend fun deleteAllWidgets() = Unit
     }
 
     private class FakeIconCacheGateway : IconCacheGateway {
