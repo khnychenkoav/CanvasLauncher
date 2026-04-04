@@ -4,6 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -36,7 +39,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -116,6 +121,7 @@ fun CanvasEditLayer(
     onObjectDragStart: (CanvasObjectDragTarget) -> Unit,
     onObjectDragDelta: (CanvasObjectDragTarget, ScreenPoint) -> Unit,
     onObjectDragEnd: () -> Unit,
+    onCanvasTransform: (panDeltaPx: ScreenPoint, zoomFactor: Float, focusPx: ScreenPoint) -> Unit,
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -140,6 +146,10 @@ fun CanvasEditLayer(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .canvasMultiTouchTransformModifier(
+                enabled = isEditActive || isWidgetMode,
+                onTransform = onCanvasTransform,
+            )
             .canvasInputModifier(
                 isEditActive = isEditActive,
                 selectedTool = editState.selectedTool,
@@ -1378,6 +1388,49 @@ private fun Modifier.objectMoveModifier(
                                 y = delta.y + autoPanDelta.yOrZero(),
                             ),
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun Modifier.canvasMultiTouchTransformModifier(
+    enabled: Boolean,
+    onTransform: (panDeltaPx: ScreenPoint, zoomFactor: Float, focusPx: ScreenPoint) -> Unit,
+): Modifier {
+    if (!enabled) return this
+    return pointerInput(onTransform) {
+        awaitEachGesture {
+            while (true) {
+                val event = awaitPointerEvent(pass = PointerEventPass.Main)
+                val pressed = event.changes.filter { change -> change.pressed }
+                if (pressed.isEmpty()) {
+                    break
+                }
+                if (pressed.size < 2) {
+                    continue
+                }
+
+                val zoom = event.calculateZoom()
+                val pan = event.calculatePan()
+                val centroid = event.calculateCentroid(useCurrent = true)
+                if (
+                    centroid.x.isNaN() ||
+                    centroid.y.isNaN() ||
+                    (zoom == 1f && pan == Offset.Zero)
+                ) {
+                    continue
+                }
+
+                onTransform(
+                    ScreenPoint(pan.x, pan.y),
+                    zoom,
+                    ScreenPoint(centroid.x, centroid.y),
+                )
+                event.changes.forEach { change ->
+                    if (change.positionChanged()) {
+                        change.consume()
                     }
                 }
             }

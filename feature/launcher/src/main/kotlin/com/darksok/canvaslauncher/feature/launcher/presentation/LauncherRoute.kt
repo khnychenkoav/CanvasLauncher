@@ -225,6 +225,9 @@ fun LauncherRoute(
                         onObjectDragStart = viewModel::onEditObjectDragStart,
                         onObjectDragDelta = viewModel::onEditObjectDragDelta,
                         onObjectDragEnd = viewModel::onEditObjectDragEnd,
+                        onCanvasTransform = { pan, zoom, focus ->
+                            viewModel.onTransform(pan, zoom, focus)
+                        },
                     )
 
                     if (!uiState.toolsState.isSearchActive &&
