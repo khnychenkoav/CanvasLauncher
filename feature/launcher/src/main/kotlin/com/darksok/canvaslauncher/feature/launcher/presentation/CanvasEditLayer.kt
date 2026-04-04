@@ -44,8 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -181,7 +179,6 @@ fun CanvasEditLayer(
                 topPx = frameTop,
             )
         }
-
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -512,30 +509,15 @@ fun CanvasEditLayer(
             val noteLeftPx = center.x - noteSizePx / 2f
             val noteTopPx = center.y - noteSizePx / 2f
             val noteText = note.text.ifBlank { stringResource(id = R.string.canvas_sticky_fallback_text) }
-            val lengthFactor = (STICKY_TEXT_BASE_LENGTH / noteText.length.coerceAtLeast(1).toFloat())
-                .coerceIn(STICKY_TEXT_MIN_LENGTH_FACTOR, STICKY_TEXT_MAX_LENGTH_FACTOR)
-            val stickyAreaFactor = (note.sizeWorld / CanvasEditDefaults.DEFAULT_STICKY_SIZE_WORLD)
-                .coerceIn(STICKY_TEXT_MIN_AREA_FACTOR, STICKY_TEXT_MAX_AREA_FACTOR)
-            val preferredStickyTextSizePx = (note.textSizeWorld * scale * stickyAreaFactor * lengthFactor)
-                .coerceIn(9f, 72f)
-            val stickyInnerPaddingPx = with(density) { STICKY_TEXT_INNER_PADDING_DP.toPx() * 2f }
-            val stickyTextSizePx = remember(
-                note.id,
-                note.text,
-                noteSizePx,
-                note.textSizeWorld,
-                scale,
-            ) {
-                fitStickyTextSizePx(
-                    textMeasurer = textMeasurer,
-                    baseStyle = stickyTextBaseStyle,
-                    density = density,
-                    text = noteText,
-                    preferredTextSizePx = preferredStickyTextSizePx,
-                    contentWidthPx = (noteSizePx - stickyInnerPaddingPx).coerceAtLeast(18f),
-                    contentHeightPx = (noteSizePx - stickyInnerPaddingPx).coerceAtLeast(18f),
-                )
-            }
+            val stickyTextSizePx = (note.textSizeWorld * scale)
+                .coerceIn(STICKY_TEXT_MIN_SIZE_PX, noteSizePx * STICKY_TEXT_MAX_SIZE_FRACTION)
+            val stickyTextPaddingPx = with(density) { STICKY_TEXT_INNER_PADDING_DP.toPx() * 2f }
+            val stickyContentHeightPx = (noteSizePx - stickyTextPaddingPx).coerceAtLeast(12f)
+            val stickyLineHeightPx = (stickyTextSizePx * STICKY_TEXT_LINE_HEIGHT_MULTIPLIER)
+                .coerceAtLeast(1f)
+            val stickyMaxLines = (stickyContentHeightPx / stickyLineHeightPx)
+                .toInt()
+                .coerceAtLeast(1)
             Surface(
                 shape = RectangleShape,
                 color = Color(note.colorArgb).copy(alpha = 0.92f),
@@ -621,9 +603,9 @@ fun CanvasEditLayer(
                         ),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                        maxLines = Int.MAX_VALUE,
-                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.padding(STICKY_TEXT_INNER_PADDING_DP),
+                        maxLines = stickyMaxLines,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -697,19 +679,37 @@ fun CanvasEditLayer(
             )
         }
 
-        widgets.forEach { widget ->
+        val widgetLayouts = widgets.map { widget ->
             val center = WorldScreenTransformer.worldToScreen(widget.center, cameraState)
-            val widgetWidthPx = (widget.widthWorld * scale).coerceAtLeast(56f)
-            val widgetHeightPx = (widget.heightWorld * scale).coerceAtLeast(42f)
-            val widgetLeftPx = center.x - widgetWidthPx / 2f
-            val widgetTopPx = center.y - widgetHeightPx / 2f
+            val widthPx = (widget.widthWorld * scale).coerceAtLeast(WIDGET_MIN_WIDTH_RENDER_SIZE_PX)
+            val heightPx = (widget.heightWorld * scale).coerceAtLeast(WIDGET_MIN_HEIGHT_RENDER_SIZE_PX)
+            val leftPx = center.x - widthPx / 2f
+            val topPx = center.y - heightPx / 2f
+            val centerZoneMinWidthPx = min(48f, widthPx)
+            val centerZoneMinHeightPx = min(36f, heightPx)
+            val centerZoneWidthPx = (widthPx * WIDGET_CENTER_DRAG_WIDTH_FACTOR)
+                .coerceIn(centerZoneMinWidthPx, widthPx)
+            val centerZoneHeightPx = (heightPx * WIDGET_CENTER_DRAG_HEIGHT_FACTOR)
+                .coerceIn(centerZoneMinHeightPx, heightPx)
+            WidgetLayoutState(
+                widget = widget,
+                center = center,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                leftPx = leftPx,
+                topPx = topPx,
+                centerZoneLeftPx = center.x - centerZoneWidthPx / 2f,
+                centerZoneTopPx = center.y - centerZoneHeightPx / 2f,
+                centerZoneWidthPx = centerZoneWidthPx,
+                centerZoneHeightPx = centerZoneHeightPx,
+            )
+        }
+
+        widgetLayouts.forEach { layout ->
+            val widget = layout.widget
             val isSelected = isWidgetMode && selectedWidgetIdForResize == widget.id
-            val centerZoneWidthPx = (widgetWidthPx * WIDGET_CENTER_DRAG_WIDTH_FACTOR)
-                .coerceIn(48f, widgetWidthPx)
-            val centerZoneHeightPx = (widgetHeightPx * WIDGET_CENTER_DRAG_HEIGHT_FACTOR)
-                .coerceIn(36f, widgetHeightPx)
-            val centerZoneLeftPx = center.x - centerZoneWidthPx / 2f
-            val centerZoneTopPx = center.y - centerZoneHeightPx / 2f
+            val clockTextSizePx = (min(layout.widthPx, layout.heightPx) * WIDGET_CLOCK_TEXT_SIZE_FACTOR)
+                .coerceIn(WIDGET_CLOCK_MIN_TEXT_SIZE_PX, layout.heightPx * WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION)
 
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -719,13 +719,13 @@ fun CanvasEditLayer(
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            x = widgetLeftPx.roundToInt(),
-                            y = widgetTopPx.roundToInt(),
+                            x = layout.leftPx.roundToInt(),
+                            y = layout.topPx.roundToInt(),
                         )
                     }
                     .size(
-                        width = with(density) { widgetWidthPx.toDp() },
-                        height = with(density) { widgetHeightPx.toDp() },
+                        width = with(density) { layout.widthPx.toDp() },
+                        height = with(density) { layout.heightPx.toDp() },
                     )
                     .zIndex(0.78f)
                     .then(
@@ -740,30 +740,11 @@ fun CanvasEditLayer(
                         },
                     ),
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-                                ),
-                            ),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (widget.type == CanvasWidgetType.ClockDigital) {
-                        Text(
-                            text = digitalClockText,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(widget.colorArgb),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
+                WidgetSurfaceContent(
+                    widget = widget,
+                    digitalClockText = digitalClockText,
+                    clockTextSizePx = clockTextSizePx,
+                )
             }
 
             if (isSelected) {
@@ -771,21 +752,21 @@ fun CanvasEditLayer(
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                x = centerZoneLeftPx.roundToInt(),
-                                y = centerZoneTopPx.roundToInt(),
+                                x = layout.centerZoneLeftPx.roundToInt(),
+                                y = layout.centerZoneTopPx.roundToInt(),
                             )
                         }
                         .size(
-                            width = with(density) { centerZoneWidthPx.toDp() },
-                            height = with(density) { centerZoneHeightPx.toDp() },
+                            width = with(density) { layout.centerZoneWidthPx.toDp() },
+                            height = with(density) { layout.centerZoneHeightPx.toDp() },
                         )
                         .zIndex(0.81f)
                         .objectMoveModifier(
                             enabled = true,
                             target = CanvasObjectDragTarget.Widget(widget.id),
                             nodeTopLeftScreen = ScreenPoint(
-                                x = centerZoneLeftPx,
-                                y = centerZoneTopPx,
+                                x = layout.centerZoneLeftPx,
+                                y = layout.centerZoneTopPx,
                             ),
                             canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
                             canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
@@ -801,13 +782,13 @@ fun CanvasEditLayer(
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                x = widgetLeftPx.roundToInt(),
-                                y = widgetTopPx.roundToInt(),
+                                x = layout.leftPx.roundToInt(),
+                                y = layout.topPx.roundToInt(),
                             )
                         }
                         .size(
-                            width = with(density) { widgetWidthPx.toDp() },
-                            height = with(density) { widgetHeightPx.toDp() },
+                            width = with(density) { layout.widthPx.toDp() },
+                            height = with(density) { layout.heightPx.toDp() },
                         )
                         .zIndex(0.82f),
                 ) {
@@ -825,10 +806,10 @@ fun CanvasEditLayer(
                 }
                 FrameResizeHandles(
                     frameId = widget.id,
-                    frameLeftPx = widgetLeftPx,
-                    frameTopPx = widgetTopPx,
-                    frameWidthPx = widgetWidthPx,
-                    frameHeightPx = widgetHeightPx,
+                    frameLeftPx = layout.leftPx,
+                    frameTopPx = layout.topPx,
+                    frameWidthPx = layout.widthPx,
+                    frameHeightPx = layout.heightPx,
                     onFrameResizeStart = { _, handle -> onWidgetResizeStart(handle) },
                     onFrameResizeDrag = { _, handle, delta -> onWidgetResizeDrag(handle, delta) },
                     onFrameResizeEnd = onWidgetResizeEnd,
@@ -838,8 +819,8 @@ fun CanvasEditLayer(
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                x = (center.x - with(density) { 18.dp.toPx() }).roundToInt(),
-                                y = (widgetTopPx - with(density) { 20.dp.toPx() }).roundToInt(),
+                                x = (layout.center.x - with(density) { 18.dp.toPx() }).roundToInt(),
+                                y = (layout.topPx - with(density) { 20.dp.toPx() }).roundToInt(),
                             )
                         }
                         .zIndex(0.84f),
@@ -1330,36 +1311,77 @@ private fun Modifier.objectMoveModifier(
     onAutoPanDelta: (ScreenPoint) -> Unit,
 ): Modifier {
     if (!enabled) return this
-    return pointerInput(target) {
-        detectDragGestures(
-            onDragStart = {
-                onObjectDragStart(target)
-            },
-            onDragEnd = onObjectDragEnd,
-            onDragCancel = onObjectDragEnd,
-            onDrag = { change, dragAmount ->
-                val pointerScreen = Offset(
-                    x = nodeTopLeftScreen.x + change.position.x,
-                    y = nodeTopLeftScreen.y + change.position.y,
-                )
-                val autoPanDelta = edgeAutoPanDelta(
-                    pointerScreen = pointerScreen,
-                    canvasWidthPx = canvasWidthPx,
-                    canvasHeightPx = canvasHeightPx,
-                    autoPanZonePx = autoPanZonePx,
-                    autoPanMaxStepPx = autoPanMaxStepPx,
-                )
-                autoPanDelta?.let(onAutoPanDelta)
-                change.consume()
-                onObjectDragDelta(
-                    target,
-                    ScreenPoint(
-                        x = dragAmount.x + autoPanDelta.xOrZero(),
-                        y = dragAmount.y + autoPanDelta.yOrZero(),
-                    ),
-                )
-            },
-        )
+    return pointerInput(
+        target,
+        nodeTopLeftScreen,
+        canvasWidthPx,
+        canvasHeightPx,
+        autoPanZonePx,
+        autoPanMaxStepPx,
+    ) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val pointerId = down.id
+            var dragStarted = false
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.filter { change -> change.pressed }
+                val pointerChange = event.changes.firstOrNull { change -> change.id == pointerId }
+
+                if (pointerChange == null || !pointerChange.pressed) {
+                    if (dragStarted) {
+                        onObjectDragEnd()
+                    }
+                    break
+                }
+
+                // Multi-touch should be owned by canvas pinch/zoom, never by object drag.
+                if (pressed.size > 1) {
+                    if (dragStarted) {
+                        onObjectDragEnd()
+                    }
+                    while (true) {
+                        val releaseEvent = awaitPointerEvent()
+                        if (releaseEvent.changes.none { change -> change.pressed }) {
+                            break
+                        }
+                    }
+                    break
+                }
+
+                val movedDistancePx = (pointerChange.position - down.position).getDistance()
+                if (!dragStarted && movedDistancePx > viewConfiguration.touchSlop) {
+                    dragStarted = true
+                    onObjectDragStart(target)
+                }
+                if (dragStarted) {
+                    val delta = pointerChange.position - pointerChange.previousPosition
+                    if (delta != Offset.Zero) {
+                        val pointerScreen = Offset(
+                            x = nodeTopLeftScreen.x + pointerChange.position.x,
+                            y = nodeTopLeftScreen.y + pointerChange.position.y,
+                        )
+                        val autoPanDelta = edgeAutoPanDelta(
+                            pointerScreen = pointerScreen,
+                            canvasWidthPx = canvasWidthPx,
+                            canvasHeightPx = canvasHeightPx,
+                            autoPanZonePx = autoPanZonePx,
+                            autoPanMaxStepPx = autoPanMaxStepPx,
+                        )
+                        autoPanDelta?.let(onAutoPanDelta)
+                        pointerChange.consume()
+                        onObjectDragDelta(
+                            target,
+                            ScreenPoint(
+                                x = delta.x + autoPanDelta.xOrZero(),
+                                y = delta.y + autoPanDelta.yOrZero(),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1523,39 +1545,42 @@ private fun ScreenPoint?.toOffset(): Offset {
 private fun ScreenPoint?.xOrZero(): Float = this?.x ?: 0f
 private fun ScreenPoint?.yOrZero(): Float = this?.y ?: 0f
 
-private fun fitStickyTextSizePx(
-    textMeasurer: androidx.compose.ui.text.TextMeasurer,
-    baseStyle: androidx.compose.ui.text.TextStyle,
-    density: Density,
-    text: String,
-    preferredTextSizePx: Float,
-    contentWidthPx: Float,
-    contentHeightPx: Float,
-): Float {
-    if (text.isBlank()) return preferredTextSizePx.coerceAtLeast(STICKY_TEXT_MIN_FIT_SIZE_PX)
-    val maxWidth = contentWidthPx.roundToInt().coerceAtLeast(1)
-    val maxHeight = contentHeightPx.roundToInt().coerceAtLeast(1)
-    var candidate = preferredTextSizePx.coerceAtLeast(STICKY_TEXT_MIN_FIT_SIZE_PX)
-    repeat(STICKY_TEXT_FIT_MAX_STEPS) {
-        val layout = textMeasurer.measure(
-            text = text,
-            style = baseStyle.copy(
-                fontSize = with(density) { candidate.toSp() },
-                lineHeight = with(density) { (candidate * STICKY_TEXT_LINE_HEIGHT_MULTIPLIER).toSp() },
+@Composable
+private fun WidgetSurfaceContent(
+    widget: CanvasWidgetUiState,
+    digitalClockText: String,
+    clockTextSizePx: Float,
+) {
+    val density = LocalDensity.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                    ),
+                ),
             ),
-            maxLines = Int.MAX_VALUE,
-            softWrap = true,
-            overflow = TextOverflow.Clip,
-            constraints = Constraints(maxWidth = maxWidth),
-        )
-        val fits = !layout.hasVisualOverflow && layout.size.height <= maxHeight
-        if (fits || candidate <= STICKY_TEXT_MIN_FIT_SIZE_PX + 0.1f) {
-            return candidate
+        contentAlignment = Alignment.Center,
+    ) {
+        when (widget.type) {
+            CanvasWidgetType.ClockDigital -> {
+                Text(
+                    text = digitalClockText,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = with(density) { clockTextSizePx.toSp() },
+                    ),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(widget.colorArgb),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
         }
-        candidate = (candidate * STICKY_TEXT_FIT_SHRINK_FACTOR)
-            .coerceAtLeast(STICKY_TEXT_MIN_FIT_SIZE_PX)
     }
-    return candidate
 }
 
 private data class FrameResizeHandlePlacement(
@@ -1572,11 +1597,19 @@ private data class FrameLayoutState(
     val topPx: Float,
 )
 
-private const val STICKY_TEXT_BASE_LENGTH = 26f
-private const val STICKY_TEXT_MIN_LENGTH_FACTOR = 0.72f
-private const val STICKY_TEXT_MAX_LENGTH_FACTOR = 1.46f
-private const val STICKY_TEXT_MIN_AREA_FACTOR = 0.75f
-private const val STICKY_TEXT_MAX_AREA_FACTOR = 1.65f
+private data class WidgetLayoutState(
+    val widget: CanvasWidgetUiState,
+    val center: ScreenPoint,
+    val widthPx: Float,
+    val heightPx: Float,
+    val leftPx: Float,
+    val topPx: Float,
+    val centerZoneLeftPx: Float,
+    val centerZoneTopPx: Float,
+    val centerZoneWidthPx: Float,
+    val centerZoneHeightPx: Float,
+)
+
 private val FRAME_CORNER_RADIUS_DP = 10.dp
 private val FRAME_BORDER_STROKE_DP = 1.8.dp
 private val FRAME_BORDER_TAP_HIT_DP = 18.dp
@@ -1584,11 +1617,15 @@ private val FRAME_RESIZE_HANDLE_TOUCH_TARGET_DP = 30.dp
 private val FRAME_RESIZE_HANDLE_VISUAL_SIZE_DP = 12.dp
 private val STICKY_TEXT_INNER_PADDING_DP = 12.dp
 private const val STICKY_TEXT_LINE_HEIGHT_MULTIPLIER = 1.08f
-private const val STICKY_TEXT_MIN_FIT_SIZE_PX = 6f
-private const val STICKY_TEXT_FIT_SHRINK_FACTOR = 0.9f
-private const val STICKY_TEXT_FIT_MAX_STEPS = 22
+private const val STICKY_TEXT_MIN_SIZE_PX = 9f
+private const val STICKY_TEXT_MAX_SIZE_FRACTION = 0.32f
 private const val SELECTION_HANDLE_DEFER_RADIUS_PX = 22f
 private val EDGE_AUTO_PAN_ZONE_DP = 72.dp
 private val EDGE_AUTO_PAN_MAX_STEP_DP = 16.dp
+private const val WIDGET_MIN_WIDTH_RENDER_SIZE_PX = 56f
+private const val WIDGET_MIN_HEIGHT_RENDER_SIZE_PX = 42f
 private const val WIDGET_CENTER_DRAG_WIDTH_FACTOR = 0.46f
 private const val WIDGET_CENTER_DRAG_HEIGHT_FACTOR = 0.58f
+private const val WIDGET_CLOCK_TEXT_SIZE_FACTOR = 0.34f
+private const val WIDGET_CLOCK_MIN_TEXT_SIZE_PX = 10f
+private const val WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION = 0.70f
