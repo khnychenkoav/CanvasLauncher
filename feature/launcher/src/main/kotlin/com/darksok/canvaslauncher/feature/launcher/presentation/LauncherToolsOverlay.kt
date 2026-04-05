@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -1021,11 +1022,8 @@ private fun EditInlineEditorPill(
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
         tonalElevation = 6.dp,
         modifier = Modifier
-            .size(
-                width = maxWidth,
-                height = if (isMultilineInput) 132.dp else 50.dp,
-            )
-            .heightIn(min = 50.dp, max = 196.dp),
+            .width(maxWidth)
+            .heightIn(min = INLINE_EDITOR_MULTILINE_MIN_HEIGHT, max = 196.dp),
     ) {
         Row(
             verticalAlignment = if (isMultilineInput) Alignment.Bottom else Alignment.CenterVertically,
@@ -1077,6 +1075,11 @@ private fun EditInlineEditorPill(
                     },
                 ),
                 colors = TextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    disabledTextColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.56f),
+                    cursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    errorCursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
                     disabledContainerColor = Color.Transparent,
@@ -1193,6 +1196,7 @@ internal object SearchSuggestionTextFormatter {
 }
 
 private const val INLINE_EDITOR_MAX_LINES = 10
+private val INLINE_EDITOR_MULTILINE_MIN_HEIGHT = 132.dp
 
 private object ToolPanelUiConstants {
     val BUTTON_SIZE = 56.dp

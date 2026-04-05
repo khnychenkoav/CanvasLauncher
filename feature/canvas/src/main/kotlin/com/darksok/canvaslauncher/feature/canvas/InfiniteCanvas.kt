@@ -340,16 +340,18 @@ private fun CanvasAppNode(
     val iconSizeDp = with(LocalDensity.current) { iconSizePx.toDp() }
     val viewConfiguration = LocalViewConfiguration.current
     val touchSlopPx = viewConfiguration.touchSlop
+    val longPressTimeoutMillis = viewConfiguration.longPressTimeoutMillis
     val isInteractive = searchVisualState != CanvasSearchVisualState.Dimmed
     val interactionModifier = if (isInteractive) {
         Modifier
-            .pointerInput(packageName, touchSlopPx, dragEnabled, position) {
+            .pointerInput(packageName, touchSlopPx, longPressTimeoutMillis, dragEnabled, position) {
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
                     var trackedId = firstDown.id
                     var maxPointerCount = 1
                     var totalMove = 0f
                     var dragStarted = false
+                    var longPressDragAttempted = false
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -370,6 +372,20 @@ private fun CanvasAppNode(
                         val eventUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: SystemClock.uptimeMillis()
 
                         val movedDistancePx = (tracked.position - firstDown.position).getDistance()
+                        if (!dragStarted &&
+                            !longPressDragAttempted &&
+                            dragEnabled &&
+                            maxPointerCount == 1 &&
+                            !isTapSuppressed(eventUptime) &&
+                            movedDistancePx <= touchSlopPx &&
+                            tracked.uptimeMillis - firstDown.uptimeMillis >= longPressTimeoutMillis
+                        ) {
+                            longPressDragAttempted = true
+                            dragStarted = true
+                            tracked.consume()
+                            onDragStart(packageName)
+                            continue
+                        }
                         if (!dragStarted &&
                             dragEnabled &&
                             maxPointerCount == 1 &&

@@ -1,5 +1,6 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
+import android.content.Context
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -47,6 +48,7 @@ import com.darksok.canvaslauncher.feature.canvas.DragState
 import com.darksok.canvaslauncher.feature.canvas.ViewportController
 import com.darksok.canvaslauncher.feature.launcher.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.ArrayDeque
 import java.util.Locale
 import javax.inject.Inject
@@ -78,6 +80,7 @@ import kotlinx.coroutines.withContext
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class LauncherViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     observeAppsUseCase: ObserveAppsUseCase,
     observeThemeModeUseCase: ObserveThemeModeUseCase,
     observeLightThemePaletteUseCase: ObserveLightThemePaletteUseCase,
@@ -136,6 +139,7 @@ class LauncherViewModel @Inject constructor(
     private var activeFrameResizeSession: FrameResizeSession? = null
     private var activeWidgetResizeSession: WidgetResizeSession? = null
     private var activeSelectionResizeSession: SelectionResizeSession? = null
+    private var activeSelectionMoveSession: SelectionMoveSession? = null
     private var selectionMoveUndoCaptured: Boolean = false
     private var inlineEditorUndoCapturedTarget: CanvasInlineEditorTarget = CanvasInlineEditorTarget.None
     private var transientIconSnapDragActive: Boolean = false
@@ -952,6 +956,7 @@ class LauncherViewModel @Inject constructor(
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         if (!selectedObjects.value.isEmpty) return
         selectionMoveUndoCaptured = false
+        activeSelectionMoveSession = null
         cancelCameraFlightAnimation()
         activeObjectDrag = null
         activeObjectDragSession = null
@@ -988,6 +993,7 @@ class LauncherViewModel @Inject constructor(
         selectedObjects.value = selection
         selectionBounds.value = computeSelectionBounds(selection)
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         snapGuides.value = emptyList()
     }
 
@@ -998,10 +1004,51 @@ class LauncherViewModel @Inject constructor(
         snapGuides.value = emptyList()
     }
 
+    fun onEditSelectionLongPressAt(worldPoint: WorldPoint): Boolean {
+        if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return false
+        val scale = viewportController.cameraState.value.scale
+        if (scale <= 0f) return false
+        val iconHalfSizeWorld = iconWorldSizeForScale(scale) / 2f
+        val selectedPackage = currentAppPositionsByPackage()
+            .asSequence()
+            .mapNotNull { (packageName, center) ->
+                val contains = worldPoint.x in (center.x - iconHalfSizeWorld)..(center.x + iconHalfSizeWorld) &&
+                    worldPoint.y in (center.y - iconHalfSizeWorld)..(center.y + iconHalfSizeWorld)
+                if (!contains) {
+                    null
+                } else {
+                    val dx = worldPoint.x - center.x
+                    val dy = worldPoint.y - center.y
+                    Triple(packageName, dx * dx + dy * dy, center)
+                }
+            }
+            .minByOrNull { (_, distanceSquared, _) -> distanceSquared }
+            ?.first
+            ?: return false
+
+        cancelCameraFlightAnimation()
+        selectionDraft.value = null
+        activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
+        selectionMoveUndoCaptured = false
+        snapGuides.value = emptyList()
+        val selection = CanvasSelectionUiState(
+            packageNames = linkedSetOf(selectedPackage),
+        )
+        selectedObjects.value = selection
+        selectionBounds.value = computeSelectionBounds(selection)
+        return true
+    }
+
     fun onEditSelectionMoveDelta(delta: ScreenPoint) {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) return
         val selection = selectedObjects.value
         if (selection.isEmpty) return
+        val session = activeSelectionMoveSession?.takeIf { it.selection == selection }
+            ?: createSelectionMoveSession(selection)?.also { created ->
+                activeSelectionMoveSession = created
+            }
+            ?: return
         if (!selectionMoveUndoCaptured) {
             pushEditUndoSnapshot()
             selectionMoveUndoCaptured = true
@@ -1011,9 +1058,25 @@ class LauncherViewModel @Inject constructor(
         val worldDeltaX = delta.x / scale
         val worldDeltaY = delta.y / scale
         if (worldDeltaX == 0f && worldDeltaY == 0f) return
-        applySelectionTranslation(selection, worldDeltaX, worldDeltaY)
-        selectionBounds.value = selectionBounds.value?.offset(worldDeltaX, worldDeltaY)
-        snapGuides.value = emptyList()
+        session.accumulatedDeltaXWorld += worldDeltaX
+        session.accumulatedDeltaYWorld += worldDeltaY
+        val candidateCenter = WorldPoint(
+            x = session.initialBounds.center.x + session.accumulatedDeltaXWorld,
+            y = session.initialBounds.center.y + session.accumulatedDeltaYWorld,
+        )
+        val snap = SnapAssistEngine.snap(
+            candidate = candidateCenter,
+            anchors = session.snapAnchors,
+            cameraScale = scale,
+            previousGuides = snapGuides.value,
+            baseThresholdPx = OBJECT_SNAP_THRESHOLD_SCREEN_PX,
+            axisInfluencePx = OBJECT_SNAP_AXIS_INFLUENCE_SCREEN_PX,
+        )
+        val translatedDeltaX = snap.position.x - session.initialBounds.center.x
+        val translatedDeltaY = snap.position.y - session.initialBounds.center.y
+        applySelectionTranslationFromSession(session, translatedDeltaX, translatedDeltaY)
+        selectionBounds.value = computeSelectionBounds(selection)
+        snapGuides.value = snap.guides
     }
 
     fun onEditSelectionMoveEnd() {
@@ -1021,6 +1084,8 @@ class LauncherViewModel @Inject constructor(
         selectionMoveUndoCaptured = false
         persistSelectionTransform(includeIcons = true)
         selectionBounds.value = computeSelectionBounds(selectedObjects.value)
+        activeSelectionMoveSession = null
+        snapGuides.value = emptyList()
     }
 
     fun onEditSelectionResizeStart(handle: CanvasFrameResizeHandle) {
@@ -1028,6 +1093,7 @@ class LauncherViewModel @Inject constructor(
         val selection = selectedObjects.value
         val bounds = selectionBounds.value ?: return
         if (selection.isEmpty || !bounds.canResize) return
+        activeSelectionMoveSession = null
         pushEditUndoSnapshot()
         activeSelectionResizeSession = SelectionResizeSession(
             handle = handle,
@@ -1115,11 +1181,13 @@ class LauncherViewModel @Inject constructor(
     fun onEditSelectionResizeEnd() {
         if (activeTool.value != LauncherToolId.Edit || editSelectedTool.value != CanvasEditToolId.Selection) {
             activeSelectionResizeSession = null
+            activeSelectionMoveSession = null
             return
         }
         persistSelectionTransform(includeIcons = false)
         selectionBounds.value = computeSelectionBounds(selectedObjects.value)
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
     }
 
     fun onEditSelectionDeleteTap() {
@@ -1317,10 +1385,7 @@ class LauncherViewModel @Inject constructor(
         )
     }
 
-    fun onEditFrameTap(
-        frameId: String,
-        displayedTitle: String,
-    ) {
+    fun onEditFrameTap(frameId: String) {
         if (activeTool.value != LauncherToolId.Edit) return
         if (editSelectedTool.value == CanvasEditToolId.Delete) {
             pushEditUndoSnapshot()
@@ -1332,7 +1397,7 @@ class LauncherViewModel @Inject constructor(
         activeWidgetResizeSession = null
         val frame = frameObjects.value.firstOrNull { it.id == frameId } ?: return
         editSelectedColorArgb.value = frame.colorArgb
-        val initialTitle = frame.title.ifBlank { displayedTitle }
+        val initialTitle = frameTitleForEditor(frame.title)
         openInlineEditor(
             titleResId = R.string.edit_inline_title_edit_frame,
             placeholderResId = R.string.edit_inline_placeholder_frame_title,
@@ -1783,6 +1848,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         inlineEditorUndoCapturedTarget = CanvasInlineEditorTarget.None
         editInlineEditor.value = CanvasInlineEditorUiState()
         viewModelScope.launch(dispatchersProvider.io) {
@@ -1914,6 +1980,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         selectedFrameIdForResize.value = null
         selectedWidgetIdForResize.value = null
         frameDraft.value = null
@@ -1943,6 +2010,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         selectedFrameIdForResize.value = null
         frameDraft.value = null
         selectionDraft.value = null
@@ -1995,6 +2063,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         selectedFrameIdForResize.value = null
         selectedWidgetIdForResize.value = null
         frameDraft.value = null
@@ -2014,6 +2083,7 @@ class LauncherViewModel @Inject constructor(
         activeObjectDrag = null
         activeObjectDragSession = null
         activeWidgetResizeSession = null
+        activeSelectionMoveSession = null
         selectedWidgetIdForResize.value = null
         transientIconSnapDragActive = false
     }
@@ -2070,9 +2140,10 @@ class LauncherViewModel @Inject constructor(
         isDraft: Boolean,
     ) {
         val frameId = nextCanvasId(prefix = "frame")
+        val initialTitle = frameTitleForEditor(rawTitle = "")
         val frame = CanvasFrameObjectUiState(
             id = frameId,
-            title = "",
+            title = initialTitle,
             center = center,
             widthWorld = widthWorld.coerceAtLeast(FRAME_RESIZE_MIN_WIDTH_WORLD),
             heightWorld = heightWorld.coerceAtLeast(FRAME_RESIZE_MIN_HEIGHT_WORLD),
@@ -2084,10 +2155,19 @@ class LauncherViewModel @Inject constructor(
             openInlineEditor(
                 titleResId = R.string.edit_inline_title_frame_title,
                 placeholderResId = R.string.edit_inline_placeholder_frame_title,
-                value = "",
+                value = initialTitle,
                 target = CanvasInlineEditorTarget.EditFrame(frameId),
                 isDraft = isDraft,
             )
+        }
+    }
+
+    private fun frameTitleForEditor(rawTitle: String): String {
+        val trimmed = rawTitle.trim()
+        return if (trimmed.isNotEmpty()) {
+            trimmed
+        } else {
+            appContext.getString(R.string.canvas_frame_fallback_title)
         }
     }
 
@@ -2269,12 +2349,14 @@ class LauncherViewModel @Inject constructor(
     private fun buildSnapAnchors(
         excludedIconPackage: String? = null,
         excludedObject: CanvasObjectDragTarget? = null,
+        excludedSelection: CanvasSelectionUiState? = null,
     ): List<WorldPoint> {
+        val excludedPackages = excludedSelection?.packageNames.orEmpty()
         val iconAnchors = DragPositionOverrides.apply(
             apps = appsState.value,
             overrides = committedDragPositions.value,
         ).mapNotNull { app ->
-            if (app.packageName == excludedIconPackage) {
+            if (app.packageName == excludedIconPackage || app.packageName in excludedPackages) {
                 null
             } else {
                 app.position
@@ -2285,20 +2367,23 @@ class LauncherViewModel @Inject constructor(
         val excludedTextId = (excludedObject as? CanvasObjectDragTarget.Text)?.id
         val excludedFrameId = (excludedObject as? CanvasObjectDragTarget.Frame)?.id
         val excludedWidgetId = (excludedObject as? CanvasObjectDragTarget.Widget)?.id
+        val excludedStickyIds = excludedSelection?.stickyIds.orEmpty()
+        val excludedTextIds = excludedSelection?.textIds.orEmpty()
+        val excludedFrameIds = excludedSelection?.frameIds.orEmpty()
 
         val stickyAnchors = stickyNotes.value
             .asSequence()
-            .filterNot { it.id == excludedStickyId }
+            .filterNot { it.id == excludedStickyId || it.id in excludedStickyIds }
             .map { it.center }
             .toList()
         val textAnchors = textObjects.value
             .asSequence()
-            .filterNot { it.id == excludedTextId }
+            .filterNot { it.id == excludedTextId || it.id in excludedTextIds }
             .map { it.position }
             .toList()
         val frameAnchors = frameObjects.value
             .asSequence()
-            .filterNot { it.id == excludedFrameId }
+            .filterNot { it.id == excludedFrameId || it.id in excludedFrameIds }
             .map { it.center }
             .toList()
         val widgetAnchors = widgets.value
@@ -2321,6 +2406,8 @@ class LauncherViewModel @Inject constructor(
         selectionBounds.value = null
         selectionDraft.value = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
+        selectionMoveUndoCaptured = false
     }
 
     private fun selectObjectsFullyInside(bounds: WorldBounds): CanvasSelectionUiState {
@@ -2433,6 +2520,110 @@ class LauncherViewModel @Inject constructor(
                         selection.strokeIds.isNotEmpty()
                     ),
         )
+    }
+
+    private fun createSelectionMoveSession(selection: CanvasSelectionUiState): SelectionMoveSession? {
+        val bounds = computeSelectionBounds(selection)?.toWorldBounds() ?: return null
+        val appPositions = currentAppPositionsByPackage()
+        return SelectionMoveSession(
+            selection = selection,
+            initialBounds = bounds,
+            initialAppPositions = selection.packageNames
+                .mapNotNull { packageName ->
+                    appPositions[packageName]?.let { position -> packageName to position }
+                }
+                .toMap(),
+            initialFrames = frameObjects.value
+                .asSequence()
+                .filter { frame -> frame.id in selection.frameIds }
+                .associateBy { frame -> frame.id },
+            initialStickyNotes = stickyNotes.value
+                .asSequence()
+                .filter { note -> note.id in selection.stickyIds }
+                .associateBy { note -> note.id },
+            initialTexts = textObjects.value
+                .asSequence()
+                .filter { text -> text.id in selection.textIds }
+                .associateBy { text -> text.id },
+            initialStrokes = completedStrokes.value
+                .asSequence()
+                .filter { stroke -> stroke.id in selection.strokeIds }
+                .associateBy { stroke -> stroke.id },
+            snapAnchors = buildSnapAnchors(excludedSelection = selection),
+        )
+    }
+
+    private fun applySelectionTranslationFromSession(
+        session: SelectionMoveSession,
+        deltaXWorld: Float,
+        deltaYWorld: Float,
+    ) {
+        if (session.selection.packageNames.isNotEmpty()) {
+            committedDragPositions.update { overrides ->
+                val next = overrides.toMutableMap()
+                session.initialAppPositions.forEach { (packageName, initialPosition) ->
+                    next[packageName] = WorldPoint(
+                        x = initialPosition.x + deltaXWorld,
+                        y = initialPosition.y + deltaYWorld,
+                    )
+                }
+                next
+            }
+        }
+        if (session.selection.frameIds.isNotEmpty()) {
+            frameObjects.update { frames ->
+                frames.map { current ->
+                    val initial = session.initialFrames[current.id] ?: return@map current
+                    initial.copy(
+                        center = WorldPoint(
+                            x = initial.center.x + deltaXWorld,
+                            y = initial.center.y + deltaYWorld,
+                        ),
+                    )
+                }
+            }
+        }
+        if (session.selection.stickyIds.isNotEmpty()) {
+            stickyNotes.update { notes ->
+                notes.map { current ->
+                    val initial = session.initialStickyNotes[current.id] ?: return@map current
+                    initial.copy(
+                        center = WorldPoint(
+                            x = initial.center.x + deltaXWorld,
+                            y = initial.center.y + deltaYWorld,
+                        ),
+                    )
+                }
+            }
+        }
+        if (session.selection.textIds.isNotEmpty()) {
+            textObjects.update { texts ->
+                texts.map { current ->
+                    val initial = session.initialTexts[current.id] ?: return@map current
+                    initial.copy(
+                        position = WorldPoint(
+                            x = initial.position.x + deltaXWorld,
+                            y = initial.position.y + deltaYWorld,
+                        ),
+                    )
+                }
+            }
+        }
+        if (session.selection.strokeIds.isNotEmpty()) {
+            completedStrokes.update { strokes ->
+                strokes.map { current ->
+                    val initial = session.initialStrokes[current.id] ?: return@map current
+                    initial.copy(
+                        points = initial.points.map { point ->
+                            WorldPoint(
+                                x = point.x + deltaXWorld,
+                                y = point.y + deltaYWorld,
+                            )
+                        },
+                    )
+                }
+            }
+        }
     }
 
     private fun applySelectionTranslation(
@@ -2712,6 +2903,8 @@ class LauncherViewModel @Inject constructor(
         selectedObjects.value = remainingSelection
         selectionBounds.value = computeSelectionBounds(remainingSelection)
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
+        selectionMoveUndoCaptured = false
 
         viewModelScope.launch(dispatchersProvider.io) {
             frameIds.forEach { frameId ->
@@ -2791,6 +2984,7 @@ class LauncherViewModel @Inject constructor(
         if (current.isEmpty) {
             selectionBounds.value = null
             activeSelectionResizeSession = null
+            activeSelectionMoveSession = null
             return
         }
         val appPackages = appsState.value.mapTo(HashSet()) { it.packageName }
@@ -2808,6 +3002,7 @@ class LauncherViewModel @Inject constructor(
         if (pruned != current) {
             selectedObjects.value = pruned
             activeSelectionResizeSession = null
+            activeSelectionMoveSession = null
         }
         selectionBounds.value = computeSelectionBounds(pruned)
     }
@@ -2844,6 +3039,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         activeStroke.value = null
         activeObjectDrag = null
         activeObjectDragSession = null
@@ -3059,6 +3255,7 @@ class LauncherViewModel @Inject constructor(
         activeFrameResizeSession = null
         activeWidgetResizeSession = null
         activeSelectionResizeSession = null
+        activeSelectionMoveSession = null
         selectionDraft.value = null
         selectedObjects.value = CanvasSelectionUiState()
         selectionBounds.value = null
@@ -3618,6 +3815,19 @@ private data class SelectionResizeSession(
     var accumulatedDeltaYWorld: Float = 0f,
 )
 
+private data class SelectionMoveSession(
+    val selection: CanvasSelectionUiState,
+    val initialBounds: WorldBounds,
+    val initialAppPositions: Map<String, WorldPoint>,
+    val initialFrames: Map<String, CanvasFrameObjectUiState>,
+    val initialStickyNotes: Map<String, CanvasStickyNoteUiState>,
+    val initialTexts: Map<String, CanvasTextObjectUiState>,
+    val initialStrokes: Map<String, CanvasStrokeUiState>,
+    val snapAnchors: List<WorldPoint>,
+    var accumulatedDeltaXWorld: Float = 0f,
+    var accumulatedDeltaYWorld: Float = 0f,
+)
+
 private data class EditUndoSnapshot(
     val frames: List<CanvasFrameObjectUiState>,
     val stickyNotes: List<CanvasStickyNoteUiState>,
@@ -3780,6 +3990,11 @@ private data class WorldBounds(
         get() = (right - left).coerceAtLeast(0.0001f)
     val height: Float
         get() = (bottom - top).coerceAtLeast(0.0001f)
+    val center: WorldPoint
+        get() = WorldPoint(
+            x = (left + right) / 2f,
+            y = (top + bottom) / 2f,
+        )
 
     fun contains(point: WorldPoint): Boolean {
         return point.x in left..right && point.y in top..bottom
@@ -3955,6 +4170,15 @@ private fun CanvasSelectionBoundsUiState.offset(deltaX: Float, deltaY: Float): C
         top = top + deltaY,
         right = right + deltaX,
         bottom = bottom + deltaY,
+    )
+}
+
+private fun CanvasSelectionBoundsUiState.toWorldBounds(): WorldBounds {
+    return WorldBounds(
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom,
     )
 }
 

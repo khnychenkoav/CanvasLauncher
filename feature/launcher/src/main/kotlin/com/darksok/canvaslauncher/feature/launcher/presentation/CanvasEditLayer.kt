@@ -102,6 +102,7 @@ fun CanvasEditLayer(
     onSelectionDragUpdate: (WorldPoint) -> Unit,
     onSelectionDragEnd: () -> Unit,
     onSelectionClearTap: () -> Unit,
+    onSelectionLongPressAt: (WorldPoint) -> Boolean,
     onSelectionMoveDelta: (ScreenPoint) -> Unit,
     onSelectionMoveEnd: () -> Unit,
     onSelectionResizeStart: (CanvasFrameResizeHandle) -> Unit,
@@ -122,7 +123,7 @@ fun CanvasEditLayer(
     onWidgetResizeDrag: (CanvasFrameResizeHandle, ScreenPoint) -> Unit,
     onWidgetResizeEnd: () -> Unit,
     onWidgetDeleteTap: () -> Unit,
-    onFrameTap: (id: String, displayedTitle: String) -> Unit,
+    onFrameTap: (id: String) -> Unit,
     onFrameDeleteTap: (id: String) -> Unit,
     onMoveBackgroundTap: () -> Unit,
     onFrameBorderTap: (id: String) -> Unit,
@@ -249,6 +250,7 @@ fun CanvasEditLayer(
                 onSelectionDragUpdate = onSelectionDragUpdate,
                 onSelectionDragEnd = onSelectionDragEnd,
                 onSelectionClearTap = onSelectionClearTap,
+                onSelectionLongPressAt = onSelectionLongPressAt,
                 onSelectionMoveDelta = onSelectionMoveDelta,
                 onSelectionMoveEnd = onSelectionMoveEnd,
                 autoPanZonePx = autoPanZonePx,
@@ -441,7 +443,7 @@ fun CanvasEditLayer(
                         if (isEditActive && allowsObjectTap) {
                             Modifier.pointerInput(frame.id, editState.selectedTool) {
                                 detectTapGestures(
-                                    onTap = { onFrameTap(frame.id, frameTitle) },
+                                    onTap = { onFrameTap(frame.id) },
                                 )
                             }
                         } else {
@@ -1265,6 +1267,7 @@ private fun Modifier.canvasInputModifier(
     onSelectionDragUpdate: (WorldPoint) -> Unit,
     onSelectionDragEnd: () -> Unit,
     onSelectionClearTap: () -> Unit,
+    onSelectionLongPressAt: (WorldPoint) -> Boolean,
     onSelectionMoveDelta: (ScreenPoint) -> Unit,
     onSelectionMoveEnd: () -> Unit,
     autoPanZonePx: Float,
@@ -1309,7 +1312,7 @@ private fun Modifier.canvasInputModifier(
         CanvasEditToolId.Selection -> {
             pointerInput(selectedTool) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = true)
                     val pointerId = down.id
                     val startWorld = WorldScreenTransformer.screenToWorld(
                         point = ScreenPoint(down.position.x, down.position.y),
@@ -1376,19 +1379,61 @@ private fun Modifier.canvasInputModifier(
                         onSelectionDragStart(startWorld)
                         var dragStarted = false
                         var dragEnded = false
+                        var longPressMoveMode = false
+                        var movedLongPressSelection = false
+                        var longPressSelectionAttempted = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                             if (!change.pressed) {
-                                onSelectionDragEnd()
+                                if (longPressMoveMode) {
+                                    if (movedLongPressSelection) {
+                                        onSelectionMoveEnd()
+                                    }
+                                } else {
+                                    onSelectionDragEnd()
+                                }
                                 dragEnded = true
                                 break
                             }
                             val movedDistancePx = (change.position - down.position).getDistance()
-                            if (!dragStarted && movedDistancePx > viewConfiguration.touchSlop) {
+                            if (!dragStarted && !longPressMoveMode &&
+                                !longPressSelectionAttempted &&
+                                movedDistancePx <= viewConfiguration.touchSlop &&
+                                change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis
+                            ) {
+                                longPressSelectionAttempted = true
+                                onSelectionDragEnd()
+                                val longPressWorld = WorldScreenTransformer.screenToWorld(
+                                    point = ScreenPoint(change.position.x, change.position.y),
+                                    camera = latestCameraState.value,
+                                )
+                                longPressMoveMode = onSelectionLongPressAt(longPressWorld)
+                                if (longPressMoveMode) {
+                                    change.consume()
+                                    continue
+                                }
+                                onSelectionDragStart(startWorld)
+                            }
+                            if (!dragStarted && !longPressMoveMode && movedDistancePx > viewConfiguration.touchSlop) {
                                 dragStarted = true
                             }
-                            if (dragStarted) {
+                            if (longPressMoveMode) {
+                                val autoPanDelta = edgeAutoPanDelta(
+                                    pointerScreen = change.position,
+                                    canvasWidthPx = size.width.toFloat(),
+                                    canvasHeightPx = size.height.toFloat(),
+                                    autoPanZonePx = autoPanZonePx,
+                                    autoPanMaxStepPx = autoPanMaxStepPx,
+                                )
+                                autoPanDelta?.let(onAutoPanDelta)
+                                val delta = (change.position - change.previousPosition) + autoPanDelta.toOffset()
+                                if (delta != Offset.Zero) {
+                                    movedLongPressSelection = true
+                                    change.consume()
+                                    onSelectionMoveDelta(ScreenPoint(delta.x, delta.y))
+                                }
+                            } else if (dragStarted) {
                                 val autoPanDelta = edgeAutoPanDelta(
                                     pointerScreen = change.position,
                                     canvasWidthPx = size.width.toFloat(),
@@ -1408,7 +1453,13 @@ private fun Modifier.canvasInputModifier(
                             }
                         }
                         if (!dragEnded) {
-                            onSelectionDragEnd()
+                            if (longPressMoveMode) {
+                                if (movedLongPressSelection) {
+                                    onSelectionMoveEnd()
+                                }
+                            } else {
+                                onSelectionDragEnd()
+                            }
                         }
                     }
                 }

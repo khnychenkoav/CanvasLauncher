@@ -201,6 +201,7 @@ fun LauncherRoute(
                         onSelectionDragUpdate = viewModel::onEditSelectionDragUpdate,
                         onSelectionDragEnd = viewModel::onEditSelectionDragEnd,
                         onSelectionClearTap = viewModel::onEditSelectionClearTap,
+                        onSelectionLongPressAt = viewModel::onEditSelectionLongPressAt,
                         onSelectionMoveDelta = viewModel::onEditSelectionMoveDelta,
                         onSelectionMoveEnd = viewModel::onEditSelectionMoveEnd,
                         onSelectionResizeStart = viewModel::onEditSelectionResizeStart,
