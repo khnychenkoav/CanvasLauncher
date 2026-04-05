@@ -1,6 +1,7 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import android.content.Context
+import android.provider.ContactsContract
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -109,6 +110,8 @@ class LauncherViewModel @Inject constructor(
     private val searchQuery = MutableStateFlow("")
     private val appsListQuery = MutableStateFlow("")
     private val showSearchLaunchAction = MutableStateFlow(false)
+    private val contactsPermissionGranted = MutableStateFlow(false)
+    private val contactsState = MutableStateFlow<List<SearchContact>>(emptyList())
     private val searchOcclusionBottomPx = MutableStateFlow(0)
     private val isSearchKeyboardVisible = MutableStateFlow(false)
     private val editSelectedTool = MutableStateFlow(CanvasEditToolId.Move)
@@ -173,6 +176,18 @@ class LauncherViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AppSearchEngine.buildIndex(emptyList()),
         )
+    private val contactsSearchIndex = contactsState
+        .mapLatest { contacts ->
+            withContext(dispatchersProvider.default) {
+                AppSearchEngine.buildIndex(
+                    contacts.map { contact -> contact.asSearchableApp() },
+                )
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AppSearchEngine.buildIndex(emptyList()),
+        )
     private val debouncedSearchQuery = searchQuery
         .debounce(SEARCH_MATCH_DEBOUNCE_MS)
         .distinctUntilChanged()
@@ -192,6 +207,23 @@ class LauncherViewModel @Inject constructor(
 
     private val searchMatches = combine(
         appsSearchIndex,
+        debouncedSearchQuery,
+    ) { searchIndex, query ->
+        searchIndex to query
+    }.mapLatest { (searchIndex, query) ->
+        withContext(dispatchersProvider.default) {
+            AppSearchEngine.rankByLabel(
+                query = query,
+                searchIndex = searchIndex,
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+    private val contactMatches = combine(
+        contactsSearchIndex,
         debouncedSearchQuery,
     ) { searchIndex, query ->
         searchIndex to query
@@ -263,34 +295,64 @@ class LauncherViewModel @Inject constructor(
         initialValue = EditUiState(),
     )
 
+    private val searchActionSnapshot = combine(
+        showSearchLaunchAction,
+        searchMatches,
+        contactMatches,
+        contactsState,
+    ) { showLaunchAction, rankedMatches, rankedContacts, contacts ->
+        val topMatch = rankedMatches.firstOrNull()
+        val contactsBySearchKey = contacts.associateBy { contact -> contact.searchKey }
+        val topContactMatch = rankedContacts.firstOrNull()
+        val topContact = topContactMatch?.let { match ->
+            contactsBySearchKey[match.packageName]
+        }
+        val topSuggestion = when {
+            topMatch == null -> topContact?.displayName
+            topContactMatch == null -> topMatch.label
+            topContactMatch.score > topMatch.score -> topContact?.displayName ?: topMatch.label
+            else -> topMatch.label
+        }
+        SearchActionSnapshot(
+            matchedPackageNames = rankedMatches.mapTo(LinkedHashSet()) { match -> match.packageName },
+            topMatchPackageName = topMatch?.packageName,
+            topMatchLabel = topMatch?.label,
+            topContactLabel = topContact?.displayName,
+            topContactDialNumber = topContact?.dialNumber,
+            suggestionLabel = topSuggestion,
+            showLaunchAction = showLaunchAction && topMatch != null,
+            showCallContactAction = showLaunchAction && topContact != null,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SearchActionSnapshot(),
+    )
+
     private val baseSearchToolsState = combine(
         isToolsExpanded,
         activeTool,
         searchQuery,
-        showSearchLaunchAction,
-        searchMatches,
-    ) { toolsExpanded, currentTool, query, showLaunchAction, rankedMatches ->
+        searchActionSnapshot,
+    ) { toolsExpanded, currentTool, query, searchSnapshot ->
         val queryActive = query.isNotBlank()
-        val matchedPackages = if (queryActive) {
-            rankedMatches.mapTo(LinkedHashSet()) { match -> match.packageName }
-        } else {
-            emptySet()
-        }
-        val topMatch = rankedMatches.firstOrNull()
         SearchToolsState(
             toolsState = ToolsUiState(
                 isExpanded = toolsExpanded,
                 activeTool = currentTool,
                 search = SearchUiState(
                     query = query,
-                    suggestionLabel = topMatch?.label,
-                    topMatchPackageName = topMatch?.packageName,
-                    topMatchLabel = topMatch?.label,
-                    showLaunchAction = showLaunchAction && topMatch != null,
+                    suggestionLabel = searchSnapshot.suggestionLabel,
+                    topMatchPackageName = searchSnapshot.topMatchPackageName,
+                    topMatchLabel = searchSnapshot.topMatchLabel,
+                    showLaunchAction = searchSnapshot.showLaunchAction,
+                    topContactLabel = searchSnapshot.topContactLabel,
+                    topContactDialNumber = searchSnapshot.topContactDialNumber,
+                    showCallContactAction = searchSnapshot.showCallContactAction,
                 ),
             ),
             queryActive = queryActive,
-            matchedPackageNames = matchedPackages,
+            matchedPackageNames = if (queryActive) searchSnapshot.matchedPackageNames else emptySet(),
         )
     }
 
@@ -555,6 +617,27 @@ class LauncherViewModel @Inject constructor(
             runCatching { refreshPersistedDecorations() }
                 .onFailure { throwable ->
                     Log.w(TAG, "Failed to refresh persisted decorations on resume", throwable)
+                }
+            if (contactsPermissionGranted.value) {
+                runCatching { refreshContactsSnapshot() }
+                    .onFailure { throwable ->
+                        Log.w(TAG, "Failed to refresh contacts on resume", throwable)
+                    }
+            }
+        }
+    }
+
+    fun onContactsPermissionChanged(isGranted: Boolean) {
+        if (contactsPermissionGranted.value == isGranted) return
+        contactsPermissionGranted.value = isGranted
+        if (!isGranted) {
+            contactsState.value = emptyList()
+            return
+        }
+        viewModelScope.launch(dispatchersProvider.io) {
+            runCatching { refreshContactsSnapshot() }
+                .onFailure { throwable ->
+                    Log.w(TAG, "Failed to refresh contacts after permission change", throwable)
                 }
         }
     }
@@ -2096,12 +2179,71 @@ class LauncherViewModel @Inject constructor(
 
     private fun executeSearch(showLaunchAction: Boolean) {
         clearSpotlight()
-        val topMatch = searchMatches.value.firstOrNull() ?: run {
+        val topMatch = searchMatches.value.firstOrNull()
+        val topContact = contactMatches.value.firstOrNull()?.let { match ->
+            contactsState.value.firstOrNull { contact -> contact.searchKey == match.packageName }
+        }
+        if (topMatch == null && topContact == null) {
             showSearchLaunchAction.value = false
             return
         }
-        focusOnPackage(topMatch.packageName)
+        if (topMatch != null) {
+            focusOnPackage(topMatch.packageName)
+        }
         showSearchLaunchAction.value = showLaunchAction
+    }
+
+    private fun refreshContactsSnapshot() {
+        contactsState.value = loadSearchContacts(appContext)
+    }
+
+    private fun loadSearchContacts(context: Context): List<SearchContact> {
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER,
+        )
+        val contactsBySearchKey = LinkedHashMap<String, SearchContact>()
+        context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            projection,
+            null,
+            null,
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} COLLATE NOCASE ASC",
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+            val nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY)
+            val numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val normalizedNumberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER)
+            if (idIndex < 0 || numberIndex < 0) return@use
+
+            while (cursor.moveToNext()) {
+                val contactId = cursor.getLong(idIndex)
+                val displayName = cursor.getString(nameIndex)?.trim().orEmpty()
+                val rawNumber = cursor.getString(numberIndex)?.trim().orEmpty()
+                val normalizedNumber = if (normalizedNumberIndex >= 0) {
+                    cursor.getString(normalizedNumberIndex)?.trim().orEmpty()
+                } else {
+                    ""
+                }
+                val dialNumber = rawNumber.ifBlank { normalizedNumber }
+                if (dialNumber.isBlank()) continue
+
+                val label = displayName.ifBlank { dialNumber }
+                val searchKey = "$SEARCH_CONTACT_KEY_PREFIX$contactId"
+                val existing = contactsBySearchKey[searchKey]
+                if (existing == null || existing.displayName == existing.dialNumber && label != dialNumber) {
+                    contactsBySearchKey[searchKey] = SearchContact(
+                        searchKey = searchKey,
+                        displayName = label,
+                        dialNumber = dialNumber,
+                    )
+                }
+            }
+        }
+        return contactsBySearchKey.values
+            .sortedBy { contact -> contact.displayName.lowercase(Locale.ROOT) }
     }
 
     private fun focusOnPackage(packageName: String) {
@@ -2716,8 +2858,7 @@ class LauncherViewModel @Inject constructor(
     fun onWidgetCatalogItemSelected(type: CanvasWidgetType) {
         if (activeTool.value != LauncherToolId.Widgets) return
         val widgetId = nextCanvasId(prefix = "widget")
-        val widthWorld = CanvasEditDefaults.DEFAULT_WIDGET_WIDTH_WORLD
-        val heightWorld = CanvasEditDefaults.DEFAULT_WIDGET_HEIGHT_WORLD
+        val (widthWorld, heightWorld) = defaultWidgetSize(type)
         val center = findFreeWidgetCenter(widthWorld = widthWorld, heightWorld = heightWorld)
         val widget = CanvasWidgetUiState(
             id = widgetId,
@@ -2732,6 +2873,29 @@ class LauncherViewModel @Inject constructor(
         selectedWidgetIdForResize.value = widgetId
         activeWidgetResizeSession = null
         persistWidget(widget)
+    }
+
+    private fun defaultWidgetSize(type: CanvasWidgetType): Pair<Float, Float> {
+        return when (type) {
+            CanvasWidgetType.ClockDigital -> {
+                CanvasEditDefaults.DEFAULT_WIDGET_WIDTH_WORLD to CanvasEditDefaults.DEFAULT_WIDGET_HEIGHT_WORLD
+            }
+
+            CanvasWidgetType.ClockAnalog -> {
+                CanvasEditDefaults.DEFAULT_ANALOG_WIDGET_SIZE_WORLD to
+                    CanvasEditDefaults.DEFAULT_ANALOG_WIDGET_SIZE_WORLD
+            }
+
+            CanvasWidgetType.Weather -> {
+                CanvasEditDefaults.DEFAULT_WEATHER_WIDGET_WIDTH_WORLD to
+                    CanvasEditDefaults.DEFAULT_WEATHER_WIDGET_HEIGHT_WORLD
+            }
+
+            CanvasWidgetType.Notifications -> {
+                CanvasEditDefaults.DEFAULT_NOTIFICATIONS_WIDGET_WIDTH_WORLD to
+                    CanvasEditDefaults.DEFAULT_NOTIFICATIONS_WIDGET_HEIGHT_WORLD
+            }
+        }
     }
 
     fun onWidgetTap(widgetId: String) {
@@ -3681,6 +3845,7 @@ class LauncherViewModel @Inject constructor(
         private const val ICON_VIEWPORT_WARMUP_DEBOUNCE_MS = 220L
         private const val SEARCH_BASE_OCCLUSION_PX = 64f
         private const val SEARCH_MATCH_DEBOUNCE_MS = 28L
+        private const val SEARCH_CONTACT_KEY_PREFIX = "contact:"
         private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
         private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
         private const val SEARCH_MIN_FOCUS_LIFT_PX = 32f
@@ -3756,6 +3921,17 @@ private data class SearchToolsState(
     val matchedPackageNames: Set<String> = emptySet(),
 )
 
+private data class SearchActionSnapshot(
+    val matchedPackageNames: Set<String> = emptySet(),
+    val topMatchPackageName: String? = null,
+    val topMatchLabel: String? = null,
+    val topContactLabel: String? = null,
+    val topContactDialNumber: String? = null,
+    val suggestionLabel: String? = null,
+    val showLaunchAction: Boolean = false,
+    val showCallContactAction: Boolean = false,
+)
+
 private data class FrameDecorationsState(
     val frames: List<CanvasFrameObjectUiState> = emptyList(),
     val frameDraft: CanvasFrameDraftUiState? = null,
@@ -3785,6 +3961,20 @@ private data class AppsListEntry(
     val packageName: String,
     val label: String,
 )
+
+private data class SearchContact(
+    val searchKey: String,
+    val displayName: String,
+    val dialNumber: String,
+)
+
+private fun SearchContact.asSearchableApp(): CanvasApp {
+    return CanvasApp(
+        packageName = searchKey,
+        label = displayName,
+        position = WorldPoint(0f, 0f),
+    )
+}
 
 private data class FrameResizeSession(
     val frameId: String,

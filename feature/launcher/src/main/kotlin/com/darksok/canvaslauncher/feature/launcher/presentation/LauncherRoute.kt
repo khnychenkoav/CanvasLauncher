@@ -1,52 +1,77 @@
 ﻿package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import android.app.Activity
+import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -72,15 +97,27 @@ fun LauncherRoute(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    var permissionRefreshToken by remember { mutableStateOf(0) }
+    val missingPermissions = remember(permissionRefreshToken, context) {
+        collectMissingRequiredPermissions(context)
+    }
+    val hasAllRequiredPermissions = missingPermissions.isEmpty()
+    val requestRequiredPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        permissionRefreshToken++
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val isSystemDark = isSystemInDarkTheme()
     val darkTheme = uiState.themeMode.resolveDarkTheme(isSystemDark)
 
     DisposableEffect(lifecycleOwner, viewModel) {
         viewModel.onHostResumed()
+        permissionRefreshToken++
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.onHostResumed()
+                permissionRefreshToken++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -116,6 +153,9 @@ fun LauncherRoute(
             snackbarHostState.showSnackbar(message = context.getString(messageRes))
         }
     }
+    LaunchedEffect(permissionRefreshToken, hasAllRequiredPermissions) {
+        viewModel.onContactsPermissionChanged(hasContactsPermission(context))
+    }
 
     CanvasLauncherTheme(darkTheme = darkTheme, lightPalette = uiState.lightPalette, darkPalette = uiState.darkPalette) {
         SystemBarsContrastEffect(darkTheme = darkTheme)
@@ -147,7 +187,29 @@ fun LauncherRoute(
             Box(
                 modifier = canvasHostModifier,
             ) {
-                if (!uiState.isInitialized) {
+                if (!hasAllRequiredPermissions) {
+                    PermissionsRequiredScreen(
+                        missingPermissions = missingPermissions,
+                        onGrantPermissions = {
+                            val permissionsToRequest = collectRequiredRuntimePermissionsToRequest(context)
+                            if (permissionsToRequest.isNotEmpty()) {
+                                requestRequiredPermissionsLauncher.launch(permissionsToRequest)
+                            } else if (!hasNotificationListenerAccess(context)) {
+                                openNotificationListenerSettings(context)
+                                permissionRefreshToken++
+                            } else {
+                                openAppPermissionSettings(context)
+                                permissionRefreshToken++
+                            }
+                        },
+                        onOpenSettings = {
+                            openAppPermissionSettings(context)
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding(),
+                    )
+                } else if (!uiState.isInitialized) {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
                     )
@@ -311,6 +373,16 @@ fun LauncherRoute(
                                     }
                                 }
                             },
+                            onSearchCallContact = { phoneNumber ->
+                                val opened = openContactInDialer(context, phoneNumber)
+                                if (!opened) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = context.getString(R.string.error_contact_call_unavailable),
+                                        )
+                                    }
+                                }
+                            },
                             onSearchLaunchTopMatch = viewModel::onSearchLaunchTopMatch,
                             onSearchClose = viewModel::onSearchClose,
                             onSearchOcclusionChanged = viewModel::onSearchOcclusionChanged,
@@ -330,6 +402,109 @@ fun LauncherRoute(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+private data class RequiredPermissionUiSpec(
+    val titleResId: Int,
+    val descriptionResId: Int,
+)
+
+@Composable
+private fun PermissionsRequiredScreen(
+    missingPermissions: List<RequiredPermissionUiSpec>,
+    onGrantPermissions: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val backgroundBrush = remember(colorScheme) {
+        Brush.verticalGradient(
+            colors = listOf(
+                colorScheme.primary.copy(alpha = 0.16f),
+                colorScheme.surface,
+                colorScheme.secondary.copy(alpha = 0.12f),
+            ),
+        )
+    }
+    Box(
+        modifier = modifier
+            .background(backgroundBrush)
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = colorScheme.surface.copy(alpha = 0.94f),
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                shape = RoundedCornerShape(24.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.permissions_gate_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colorScheme.onSurface,
+                        textAlign = TextAlign.Start,
+                    )
+                    Text(
+                        text = stringResource(id = R.string.permissions_gate_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colorScheme.onSurfaceVariant,
+                    )
+                    missingPermissions.forEach { permission ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(id = permission.titleResId),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = stringResource(id = permission.descriptionResId),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onGrantPermissions,
+                modifier = Modifier.widthIn(min = 220.dp),
+            ) {
+                Text(text = stringResource(id = R.string.permissions_gate_grant_button))
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.widthIn(min = 220.dp),
+            ) {
+                Text(text = stringResource(id = R.string.permissions_gate_settings_button))
             }
         }
     }
@@ -360,6 +535,119 @@ private fun openQueryInDefaultBrowser(
         Uri.parse("https://www.google.com/search?q=$encoded"),
     )
     return launchIntentCompat(context, intent)
+}
+
+private fun openAppPermissionSettings(context: Context): Boolean {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null),
+    )
+    return launchIntentCompat(context, intent)
+}
+
+private fun collectMissingRequiredPermissions(context: Context): List<RequiredPermissionUiSpec> {
+    val missing = mutableListOf<RequiredPermissionUiSpec>()
+    if (!hasContactsPermission(context)) {
+        missing += RequiredPermissionUiSpec(
+            titleResId = R.string.permissions_contacts_title,
+            descriptionResId = R.string.permissions_contacts_description,
+        )
+    }
+    if (!hasLocationPermission(context)) {
+        missing += RequiredPermissionUiSpec(
+            titleResId = R.string.permissions_location_title,
+            descriptionResId = R.string.permissions_location_description,
+        )
+    }
+    if (!hasNotificationsPermission(context)) {
+        missing += RequiredPermissionUiSpec(
+            titleResId = R.string.permissions_notifications_title,
+            descriptionResId = R.string.permissions_notifications_description,
+        )
+    }
+    if (!hasNotificationListenerAccess(context)) {
+        missing += RequiredPermissionUiSpec(
+            titleResId = R.string.permissions_notification_access_title,
+            descriptionResId = R.string.permissions_notification_access_description,
+        )
+    }
+    return missing
+}
+
+private fun collectRequiredRuntimePermissionsToRequest(context: Context): Array<String> {
+    val permissions = mutableListOf<String>()
+    if (!hasContactsPermission(context)) {
+        permissions += Manifest.permission.READ_CONTACTS
+    }
+    if (!hasLocationPermission(context)) {
+        permissions += Manifest.permission.ACCESS_FINE_LOCATION
+        permissions += Manifest.permission.ACCESS_COARSE_LOCATION
+    }
+    if (!hasNotificationsPermission(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        permissions += Manifest.permission.POST_NOTIFICATIONS
+    }
+    return permissions.distinct().toTypedArray()
+}
+
+private fun openContactInDialer(
+    context: Context,
+    phoneNumber: String,
+): Boolean {
+    val trimmed = phoneNumber.trim()
+    if (trimmed.isEmpty()) return false
+    val intent = Intent(
+        Intent.ACTION_DIAL,
+        Uri.parse("tel:${Uri.encode(trimmed)}"),
+    )
+    return launchIntentCompat(context, intent)
+}
+
+private fun hasContactsPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_CONTACTS,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+private fun hasLocationPermission(context: Context): Boolean {
+    val fineGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val coarseGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    return fineGranted || coarseGranted
+}
+
+private fun hasNotificationsPermission(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.POST_NOTIFICATIONS,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+private fun hasNotificationListenerAccess(context: Context): Boolean {
+    val enabledListeners = Settings.Secure.getString(
+        context.contentResolver,
+        NOTIFICATION_LISTENERS_SETTING_KEY,
+    ) ?: return false
+    val componentName = ComponentName(context, CanvasNotificationListenerService::class.java)
+    val full = componentName.flattenToString()
+    val short = componentName.flattenToShortString()
+    return enabledListeners.split(':').any { listener ->
+        listener.equals(full, ignoreCase = true) || listener.equals(short, ignoreCase = true)
+    }
+}
+
+private fun openNotificationListenerSettings(context: Context): Boolean {
+    val intents = listOf(
+        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+    )
+    return intents.any { intent -> launchIntentCompat(context, intent) }
 }
 
 private fun launchIntentCompat(context: Context, intent: Intent): Boolean {
@@ -398,6 +686,7 @@ private fun Context.findActivity(): Activity? {
 }
 
 private const val TAG = "LauncherRoute"
+private const val NOTIFICATION_LISTENERS_SETTING_KEY = "enabled_notification_listeners"
 
 @Composable
 private fun SystemBarsContrastEffect(darkTheme: Boolean) {

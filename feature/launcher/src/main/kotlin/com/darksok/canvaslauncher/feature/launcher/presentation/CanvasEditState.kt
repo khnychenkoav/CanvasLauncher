@@ -58,6 +58,9 @@ data class CanvasFrameObjectUiState(
 
 enum class CanvasWidgetType {
     ClockDigital,
+    ClockAnalog,
+    Weather,
+    Notifications,
 }
 
 data class CanvasWidgetUiState(
@@ -167,6 +170,11 @@ object CanvasEditDefaults {
     const val STICKY_MAX_SIZE_WORLD: Float = 320f
     const val DEFAULT_WIDGET_WIDTH_WORLD: Float = 340f
     const val DEFAULT_WIDGET_HEIGHT_WORLD: Float = 140f
+    const val DEFAULT_ANALOG_WIDGET_SIZE_WORLD: Float = 240f
+    const val DEFAULT_WEATHER_WIDGET_WIDTH_WORLD: Float = 360f
+    const val DEFAULT_WEATHER_WIDGET_HEIGHT_WORLD: Float = 164f
+    const val DEFAULT_NOTIFICATIONS_WIDGET_WIDTH_WORLD: Float = 380f
+    const val DEFAULT_NOTIFICATIONS_WIDGET_HEIGHT_WORLD: Float = 164f
     const val WIDGET_MIN_WIDTH_WORLD: Float = 180f
     const val WIDGET_MIN_HEIGHT_WORLD: Float = 88f
     val PALETTE: List<Int> = listOf(

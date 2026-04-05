@@ -1,7 +1,15 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
+import android.Manifest
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Typeface
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
+import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -44,36 +52,54 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.darksok.canvaslauncher.feature.launcher.R
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.performance.WorldScreenTransformer
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 @Composable
 fun CanvasEditLayer(
@@ -137,7 +163,6 @@ fun CanvasEditLayer(
     onCanvasTransform: (panDeltaPx: ScreenPoint, zoomFactor: Float, focusPx: ScreenPoint) -> Unit,
 ) {
     val density = LocalDensity.current
-    val digitalClockText = rememberDigitalClockText()
     val scale = cameraState.scale
     var isMultiTouchGestureActive by remember { mutableStateOf(false) }
     val allowsObjectMove = isEditActive &&
@@ -167,9 +192,6 @@ fun CanvasEditLayer(
     val frameTitleFillColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f)
     val frameTitleTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
     val stickyTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
-    val widgetFillTopColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-    val widgetFillBottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-    val widgetBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
     val frameTitlePaint = remember {
         AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             isLinearText = true
@@ -187,18 +209,14 @@ fun CanvasEditLayer(
             isLinearText = true
         }
     }
-    val widgetClockPaint = remember {
-        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
-            textAlign = AndroidPaint.Align.CENTER
-            isLinearText = true
-            typeface = Typeface.MONOSPACE
-            isFakeBoldText = true
-        }
-    }
+    val typography = MaterialTheme.typography
     SideEffect {
         frameTitlePaint.textSize = frameTitleTextSizePx
         frameTitlePaint.color = frameTitleTextColor.toArgb()
         stickyTextPaint.color = stickyTextColor.toArgb()
+        applyPaintTypography(frameTitlePaint, typography.labelLarge)
+        applyPaintTypography(stickyTextPaint, typography.bodyMedium)
+        applyPaintTypography(canvasTextPaint, typography.bodyMedium)
     }
     val tracksMultiTouch = isEditActive || isWidgetMode
 
@@ -893,194 +911,23 @@ fun CanvasEditLayer(
             )
         }
 
-        if (isWidgetMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(0.75f)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onWidgetBackgroundTap() },
-                        )
-                    },
-            )
-        }
-
-        val widgetLayouts = widgets.map { widget ->
-            val center = WorldScreenTransformer.worldToScreen(widget.center, cameraState)
-            val widthPx = (widget.widthWorld * scale).coerceAtLeast(WIDGET_MIN_WIDTH_RENDER_SIZE_PX)
-            val heightPx = (widget.heightWorld * scale).coerceAtLeast(WIDGET_MIN_HEIGHT_RENDER_SIZE_PX)
-            val leftPx = center.x - widthPx / 2f
-            val topPx = center.y - heightPx / 2f
-            val centerZoneMinWidthPx = min(48f, widthPx)
-            val centerZoneMinHeightPx = min(36f, heightPx)
-            val centerZoneWidthPx = (widthPx * WIDGET_CENTER_DRAG_WIDTH_FACTOR)
-                .coerceIn(centerZoneMinWidthPx, widthPx)
-            val centerZoneHeightPx = (heightPx * WIDGET_CENTER_DRAG_HEIGHT_FACTOR)
-                .coerceIn(centerZoneMinHeightPx, heightPx)
-            WidgetLayoutState(
-                widget = widget,
-                center = center,
-                widthPx = widthPx,
-                heightPx = heightPx,
-                leftPx = leftPx,
-                topPx = topPx,
-                centerZoneLeftPx = center.x - centerZoneWidthPx / 2f,
-                centerZoneTopPx = center.y - centerZoneHeightPx / 2f,
-                centerZoneWidthPx = centerZoneWidthPx,
-                centerZoneHeightPx = centerZoneHeightPx,
-            )
-        }
-
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(0.78f),
-        ) {
-            widgetLayouts.forEach { layout ->
-                val widget = layout.widget
-                val cornerRadius = CornerRadius(WIDGET_CORNER_RADIUS_PX, WIDGET_CORNER_RADIUS_PX)
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            widgetFillTopColor,
-                            widgetFillBottomColor,
-                        ),
-                        startY = layout.topPx,
-                        endY = layout.topPx + layout.heightPx,
-                    ),
-                    topLeft = Offset(layout.leftPx, layout.topPx),
-                    size = Size(layout.widthPx, layout.heightPx),
-                    cornerRadius = cornerRadius,
-                )
-                drawRoundRect(
-                    color = widgetBorderColor,
-                    topLeft = Offset(layout.leftPx, layout.topPx),
-                    size = Size(layout.widthPx, layout.heightPx),
-                    cornerRadius = cornerRadius,
-                    style = Stroke(width = WIDGET_BORDER_STROKE_PX),
-                )
-
-                when (widget.type) {
-                    CanvasWidgetType.ClockDigital -> {
-                        val clockTextSizePx = (min(layout.widthPx, layout.heightPx) * WIDGET_CLOCK_TEXT_SIZE_FACTOR)
-                            .coerceIn(WIDGET_CLOCK_MIN_TEXT_SIZE_PX, layout.heightPx * WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION)
-                        widgetClockPaint.textSize = clockTextSizePx
-                        widgetClockPaint.color = Color(widget.colorArgb).toArgb()
-                        val metrics = widgetClockPaint.fontMetrics
-                        val baseline = layout.topPx + (layout.heightPx - metrics.bottom + metrics.top) / 2f - metrics.top
-                        drawIntoCanvas { canvas ->
-                            canvas.nativeCanvas.drawText(
-                                digitalClockText,
-                                layout.center.x,
-                                baseline,
-                                widgetClockPaint,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        widgetLayouts.forEach { layout ->
-            val widget = layout.widget
-            val isSelected = isWidgetMode && selectedWidgetIdForResize == widget.id
-
-            if (isWidgetMode) {
-                Box(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = layout.leftPx
-                            translationY = layout.topPx
-                        }
-                        .requiredSize(
-                            width = with(density) { layout.widthPx.toDp() },
-                            height = with(density) { layout.heightPx.toDp() },
-                        )
-                        .zIndex(0.79f)
-                        .pointerInput(widget.id) {
-                            detectTapGestures(
-                                onTap = { onWidgetTap(widget.id) },
-                            )
-                        },
-                )
-            }
-
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = layout.centerZoneLeftPx
-                            translationY = layout.centerZoneTopPx
-                        }
-                        .requiredSize(
-                            width = with(density) { layout.centerZoneWidthPx.toDp() },
-                            height = with(density) { layout.centerZoneHeightPx.toDp() },
-                        )
-                        .zIndex(0.81f)
-                        .objectMoveModifier(
-                            enabled = true,
-                            target = CanvasObjectDragTarget.Widget(widget.id),
-                            nodeTopLeftScreen = ScreenPoint(
-                                x = layout.centerZoneLeftPx,
-                                y = layout.centerZoneTopPx,
-                            ),
-                            canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
-                            canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
-                            autoPanZonePx = autoPanZonePx,
-                            autoPanMaxStepPx = autoPanMaxStepPx,
-                            onObjectDragStart = onObjectDragStart,
-                            onObjectDragDelta = onObjectDragDelta,
-                            onObjectDragEnd = onObjectDragEnd,
-                            onObjectDragCancel = onObjectDragCancel,
-                            onAutoPanDelta = onAutoPanDelta,
-                        ),
-                )
-                Canvas(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = layout.leftPx
-                            translationY = layout.topPx
-                        }
-                        .requiredSize(
-                            width = with(density) { layout.widthPx.toDp() },
-                            height = with(density) { layout.heightPx.toDp() },
-                        )
-                        .zIndex(0.82f),
-                ) {
-                    drawRoundRect(
-                        color = widgetSelectionColor,
-                        cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
-                        style = Stroke(
-                            width = frameBorderStrokePx,
-                            pathEffect = PathEffect.dashPathEffect(
-                                intervals = floatArrayOf(12f, 8f),
-                                phase = 0f,
-                            ),
-                        ),
-                    )
-                }
-                FrameResizeHandles(
-                    frameId = widget.id,
-                    frameLeftPx = layout.leftPx,
-                    frameTopPx = layout.topPx,
-                    frameWidthPx = layout.widthPx,
-                    frameHeightPx = layout.heightPx,
-                    onFrameResizeStart = { _, handle -> onWidgetResizeStart(handle) },
-                    onFrameResizeDrag = { _, handle, delta -> onWidgetResizeDrag(handle, delta) },
-                    onFrameResizeEnd = onWidgetResizeEnd,
-                )
-                SelectionDeleteButton(
-                    onClick = onWidgetDeleteTap,
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = layout.center.x - with(density) { 18.dp.toPx() }
-                            translationY = layout.topPx - with(density) { DELETE_BUTTON_VERTICAL_OFFSET_DP.toPx() }
-                        }
-                        .zIndex(0.84f),
-                )
-            }
-        }
+        CanvasWidgetLayer(
+            cameraState = cameraState,
+            widgets = widgets,
+            isWidgetMode = isWidgetMode,
+            selectedWidgetIdForResize = selectedWidgetIdForResize,
+            onWidgetTap = onWidgetTap,
+            onWidgetBackgroundTap = onWidgetBackgroundTap,
+            onWidgetResizeStart = onWidgetResizeStart,
+            onWidgetResizeDrag = onWidgetResizeDrag,
+            onWidgetResizeEnd = onWidgetResizeEnd,
+            onWidgetDeleteTap = onWidgetDeleteTap,
+            onObjectDragStart = onObjectDragStart,
+            onObjectDragDelta = onObjectDragDelta,
+            onObjectDragEnd = onObjectDragEnd,
+            onObjectDragCancel = onObjectDragCancel,
+            onAutoPanDelta = onAutoPanDelta,
+        )
 
         Canvas(
             modifier = Modifier
@@ -1121,23 +968,1101 @@ fun CanvasEditLayer(
 }
 
 @Composable
-private fun rememberDigitalClockText(): String {
-    val formatter = remember {
-        DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+private fun CanvasWidgetLayer(
+    cameraState: CameraState,
+    widgets: List<CanvasWidgetUiState>,
+    isWidgetMode: Boolean,
+    selectedWidgetIdForResize: String?,
+    onWidgetTap: (id: String) -> Unit,
+    onWidgetBackgroundTap: () -> Unit,
+    onWidgetResizeStart: (CanvasFrameResizeHandle) -> Unit,
+    onWidgetResizeDrag: (CanvasFrameResizeHandle, ScreenPoint) -> Unit,
+    onWidgetResizeEnd: () -> Unit,
+    onWidgetDeleteTap: () -> Unit,
+    onObjectDragStart: (CanvasObjectDragTarget) -> Unit,
+    onObjectDragDelta: (CanvasObjectDragTarget, ScreenPoint) -> Unit,
+    onObjectDragEnd: () -> Unit,
+    onObjectDragCancel: () -> Unit,
+    onAutoPanDelta: (ScreenPoint) -> Unit,
+) {
+    val density = LocalDensity.current
+    val context = LocalContext.current
+    val scale = cameraState.scale
+    val hasAnalogWidget = remember(widgets) {
+        widgets.any { widget -> widget.type == CanvasWidgetType.ClockAnalog }
     }
-    val currentText by produceState(
-        initialValue = LocalTime.now().format(formatter),
-        key1 = formatter,
-    ) {
-        while (true) {
-            val now = LocalTime.now()
-            value = now.format(formatter)
-            val millisUntilNextMinute = ((60 - now.second).coerceAtLeast(1) * 1_000L) -
-                (now.nano / 1_000_000L)
-            delay(millisUntilNextMinute.coerceAtLeast(150L))
+    val hasClockWidget = remember(widgets) {
+        widgets.any { widget ->
+            widget.type == CanvasWidgetType.ClockDigital || widget.type == CanvasWidgetType.ClockAnalog
         }
     }
-    return currentText
+    val hasWeatherWidget = remember(widgets) {
+        widgets.any { widget -> widget.type == CanvasWidgetType.Weather }
+    }
+    val hasNotificationsWidget = remember(widgets) {
+        widgets.any { widget -> widget.type == CanvasWidgetType.Notifications }
+    }
+    val widgetTime = rememberWidgetTime(
+        enabled = hasClockWidget,
+        updateEverySecond = hasAnalogWidget,
+    )
+    val digitalClockText = remember(widgetTime) {
+        widgetTime.format(WIDGET_DIGITAL_TIME_FORMATTER)
+    }
+    val weatherSnapshot = rememberWeatherWidgetSnapshot(
+        context = context,
+        enabled = hasWeatherWidget,
+    )
+    val notificationsEnabled = rememberNotificationsEnabledFlag(
+        context = context,
+        enabled = hasNotificationsWidget,
+    )
+    val notificationAccessEnabled = rememberNotificationListenerAccessFlag(
+        context = context,
+        enabled = hasNotificationsWidget,
+    )
+    val liveNotificationEntries = rememberNotificationEntries(enabled = hasNotificationsWidget)
+    val tickerEnabled = hasNotificationsWidget &&
+        notificationAccessEnabled &&
+        notificationsEnabled &&
+        liveNotificationEntries.size > 1
+    val tickerClockMs = rememberTickerClock(enabled = tickerEnabled)
+
+    val weatherTitleText = stringResource(id = R.string.widget_weather_title)
+    val weatherHourlyPrefix = stringResource(id = R.string.widget_weather_hourly_prefix)
+    val weatherDailyPrefix = stringResource(id = R.string.widget_weather_daily_prefix)
+    val notificationsTitleText = stringResource(id = R.string.widget_notifications_title)
+    val notificationAccessRequiredText = stringResource(id = R.string.widget_notifications_access_required)
+    val notificationPermissionRequiredText = stringResource(id = R.string.widget_notifications_permission_required)
+    val notificationEmptyText = stringResource(id = R.string.widget_notifications_empty)
+    val notificationSubtitle = when {
+        !notificationAccessEnabled -> stringResource(id = R.string.widget_notifications_access_hint)
+        !notificationsEnabled -> stringResource(id = R.string.widget_notifications_permission_hint)
+        liveNotificationEntries.isEmpty() -> stringResource(id = R.string.widget_notifications_empty_hint)
+        else -> stringResource(
+            id = R.string.widget_notifications_count,
+            liveNotificationEntries.size,
+        )
+    }
+
+    val widgetSelectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f)
+    val frameCornerRadiusPx = with(density) { FRAME_CORNER_RADIUS_DP.toPx() }
+    val frameBorderStrokePx = with(density) { FRAME_BORDER_STROKE_DP.toPx() }
+    val autoPanZonePx = with(density) { EDGE_AUTO_PAN_ZONE_DP.toPx() }
+    val autoPanMaxStepPx = with(density) { EDGE_AUTO_PAN_MAX_STEP_DP.toPx() }
+    val widgetFillTopColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
+    val widgetFillBottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
+    val widgetBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    val widgetSecondaryTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+    val widgetAccentColor = MaterialTheme.colorScheme.primary
+    val widgetNotificationsEnabledColor = MaterialTheme.colorScheme.primary
+    val widgetNotificationsDisabledColor = MaterialTheme.colorScheme.error
+    val widgetFillGradientColors = remember(widgetFillTopColor, widgetFillBottomColor) {
+        listOf(widgetFillTopColor, widgetFillBottomColor)
+    }
+
+    val widgetClockPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.CENTER
+            isLinearText = true
+        }
+    }
+    val widgetTitlePaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.LEFT
+            isLinearText = true
+        }
+    }
+    val widgetBodyPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.LEFT
+            isLinearText = true
+        }
+    }
+    val widgetSubtitlePaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.LEFT
+            isLinearText = true
+        }
+    }
+    val typography = MaterialTheme.typography
+    SideEffect {
+        applyPaintTypography(widgetClockPaint, typography.headlineMedium)
+        applyPaintTypography(widgetTitlePaint, typography.labelLarge)
+        applyPaintTypography(widgetBodyPaint, typography.titleMedium)
+        applyPaintTypography(widgetSubtitlePaint, typography.bodySmall)
+    }
+
+    val widgetLayouts = remember(widgets, cameraState) {
+        widgets.map { widget ->
+            val center = WorldScreenTransformer.worldToScreen(widget.center, cameraState)
+            val widthPx = (widget.widthWorld * scale).coerceAtLeast(WIDGET_MIN_WIDTH_RENDER_SIZE_PX)
+            val heightPx = (widget.heightWorld * scale).coerceAtLeast(WIDGET_MIN_HEIGHT_RENDER_SIZE_PX)
+            val leftPx = center.x - widthPx / 2f
+            val topPx = center.y - heightPx / 2f
+            val centerZoneMinWidthPx = min(48f, widthPx)
+            val centerZoneMinHeightPx = min(36f, heightPx)
+            val centerZoneWidthPx = (widthPx * WIDGET_CENTER_DRAG_WIDTH_FACTOR)
+                .coerceIn(centerZoneMinWidthPx, widthPx)
+            val centerZoneHeightPx = (heightPx * WIDGET_CENTER_DRAG_HEIGHT_FACTOR)
+                .coerceIn(centerZoneMinHeightPx, heightPx)
+            WidgetLayoutState(
+                widget = widget,
+                center = center,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                leftPx = leftPx,
+                topPx = topPx,
+                centerZoneLeftPx = center.x - centerZoneWidthPx / 2f,
+                centerZoneTopPx = center.y - centerZoneHeightPx / 2f,
+                centerZoneWidthPx = centerZoneWidthPx,
+                centerZoneHeightPx = centerZoneHeightPx,
+            )
+        }
+    }
+
+    if (isWidgetMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(0.75f)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onWidgetBackgroundTap() },
+                    )
+                },
+        )
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(0.78f),
+    ) {
+        widgetLayouts.forEach { layout ->
+            val widget = layout.widget
+            val cornerRadius = CornerRadius(WIDGET_CORNER_RADIUS_PX, WIDGET_CORNER_RADIUS_PX)
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = widgetFillGradientColors,
+                    startY = layout.topPx,
+                    endY = layout.topPx + layout.heightPx,
+                ),
+                topLeft = Offset(layout.leftPx, layout.topPx),
+                size = Size(layout.widthPx, layout.heightPx),
+                cornerRadius = cornerRadius,
+            )
+            drawRoundRect(
+                color = widgetBorderColor,
+                topLeft = Offset(layout.leftPx, layout.topPx),
+                size = Size(layout.widthPx, layout.heightPx),
+                cornerRadius = cornerRadius,
+                style = Stroke(width = WIDGET_BORDER_STROKE_PX),
+            )
+
+            clipRect(
+                left = layout.leftPx,
+                top = layout.topPx,
+                right = layout.leftPx + layout.widthPx,
+                bottom = layout.topPx + layout.heightPx,
+            ) {
+                when (widget.type) {
+                    CanvasWidgetType.ClockDigital -> {
+                        val clockTextSizePx = (min(layout.widthPx, layout.heightPx) * WIDGET_CLOCK_TEXT_SIZE_FACTOR)
+                            .coerceIn(
+                                WIDGET_CLOCK_MIN_TEXT_SIZE_PX,
+                                layout.heightPx * WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION,
+                            )
+                        widgetClockPaint.textSize = clockTextSizePx
+                        widgetClockPaint.color = widgetAccentColor.toArgb()
+                        val maxClockWidth = (layout.widthPx * 0.86f).coerceAtLeast(18f)
+                        val clockLine = ellipsizeToWidth(
+                            text = digitalClockText,
+                            paint = widgetClockPaint,
+                            maxWidthPx = maxClockWidth,
+                        )
+                        val metrics = widgetClockPaint.fontMetrics
+                        val baseline = layout.topPx + (layout.heightPx - metrics.bottom + metrics.top) / 2f - metrics.top
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawText(
+                                clockLine,
+                                layout.center.x,
+                                baseline,
+                                widgetClockPaint,
+                            )
+                        }
+                    }
+
+                    CanvasWidgetType.ClockAnalog -> {
+                        val centerOffset = Offset(layout.center.x, layout.center.y)
+                        val radius = (min(layout.widthPx, layout.heightPx) * WIDGET_ANALOG_FACE_DIAMETER_FACTOR) / 2f
+                        val outerStroke = (radius * WIDGET_ANALOG_OUTER_STROKE_FACTOR)
+                            .coerceAtLeast(WIDGET_ANALOG_MIN_STROKE_PX)
+                        val markerStroke = (outerStroke * 0.9f).coerceAtLeast(1f)
+                        val markerInnerRadius = radius * WIDGET_ANALOG_MARKER_INNER_FACTOR
+
+                        drawCircle(
+                            color = widgetAccentColor.copy(alpha = WIDGET_ANALOG_FACE_FILL_ALPHA),
+                            radius = radius,
+                            center = centerOffset,
+                        )
+                        drawCircle(
+                            color = widgetBorderColor.copy(alpha = 0.68f),
+                            radius = radius,
+                            center = centerOffset,
+                            style = Stroke(width = outerStroke),
+                        )
+                        for (hourMark in 0 until 12) {
+                            val angleRad = ((hourMark / 12f) * (2f * PI.toFloat())) - (PI.toFloat() / 2f)
+                            val start = Offset(
+                                x = centerOffset.x + cos(angleRad) * markerInnerRadius,
+                                y = centerOffset.y + sin(angleRad) * markerInnerRadius,
+                            )
+                            val end = Offset(
+                                x = centerOffset.x + cos(angleRad) * (radius - outerStroke * 0.8f),
+                                y = centerOffset.y + sin(angleRad) * (radius - outerStroke * 0.8f),
+                            )
+                            drawLine(
+                                color = widgetBorderColor.copy(alpha = 0.78f),
+                                start = start,
+                                end = end,
+                                strokeWidth = markerStroke,
+                            )
+                        }
+
+                        val secondProgress = widgetTime.second / 60f
+                        val minuteProgress = (widgetTime.minute + secondProgress) / 60f
+                        val hourProgress = ((widgetTime.hour % 12) + minuteProgress) / 12f
+                        drawWidgetClockHand(
+                            center = centerOffset,
+                            radius = radius,
+                            progress = hourProgress,
+                            lengthFactor = WIDGET_ANALOG_HOUR_HAND_LENGTH_FACTOR,
+                            strokeWidth = (radius * 0.10f).coerceIn(2.4f, 6.8f),
+                            color = widgetBorderColor.copy(alpha = 0.95f),
+                        )
+                        drawWidgetClockHand(
+                            center = centerOffset,
+                            radius = radius,
+                            progress = minuteProgress,
+                            lengthFactor = WIDGET_ANALOG_MINUTE_HAND_LENGTH_FACTOR,
+                            strokeWidth = (radius * 0.06f).coerceIn(1.8f, 4.8f),
+                            color = widgetAccentColor.copy(alpha = 0.92f),
+                        )
+                        drawWidgetClockHand(
+                            center = centerOffset,
+                            radius = radius,
+                            progress = secondProgress,
+                            lengthFactor = WIDGET_ANALOG_SECOND_HAND_LENGTH_FACTOR,
+                            strokeWidth = (radius * 0.028f).coerceIn(1.2f, 2.6f),
+                            color = widgetAccentColor.copy(alpha = 0.80f),
+                        )
+                        drawCircle(
+                            color = widgetAccentColor,
+                            radius = (radius * WIDGET_ANALOG_CENTER_DOT_FACTOR).coerceAtLeast(2f),
+                            center = centerOffset,
+                        )
+                    }
+
+                    CanvasWidgetType.Weather -> {
+                        val horizontalPadding = max(WIDGET_INFO_HORIZONTAL_PADDING_PX, layout.widthPx * 0.08f)
+                        val titleSize = (layout.heightPx * 0.12f).coerceAtLeast(11f)
+                        val bodySize = (layout.heightPx * 0.24f)
+                            .coerceAtLeast(18f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_BODY_MAX_HEIGHT_FRACTION)
+                        val subtitleSize = (layout.heightPx * 0.11f)
+                            .coerceAtLeast(10f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION)
+                        widgetTitlePaint.textSize = titleSize
+                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetBodyPaint.textSize = bodySize
+                        widgetBodyPaint.color = if (weatherSnapshot.isResolved) {
+                            widgetAccentColor.toArgb()
+                        } else {
+                            widgetSecondaryTextColor.toArgb()
+                        }
+                        widgetSubtitlePaint.textSize = subtitleSize
+                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+
+                        val titleBaseline = layout.topPx + layout.heightPx * 0.20f
+                        val bodyBaseline = layout.topPx + layout.heightPx * 0.45f
+                        val summaryBaseline = layout.topPx + layout.heightPx * 0.61f
+                        val hourlyBaseline = layout.topPx + layout.heightPx * 0.77f
+                        val dailyBaseline = layout.topPx + layout.heightPx * 0.91f
+                        val left = layout.leftPx + horizontalPadding
+                        val availableWidth = (layout.widthPx - horizontalPadding * 2f).coerceAtLeast(24f)
+                        val titleLine = ellipsizeToWidth(
+                            text = weatherTitleText,
+                            paint = widgetTitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val temperatureLine = ellipsizeToWidth(
+                            text = weatherSnapshot.temperatureText,
+                            paint = widgetBodyPaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val summaryLine = ellipsizeToWidth(
+                            text = "${weatherSnapshot.condition} | ${weatherSnapshot.locationLabel}",
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val hourlyLine = ellipsizeToWidth(
+                            text = "$weatherHourlyPrefix: ${weatherSnapshot.hourlySummary}",
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val dailyLine = ellipsizeToWidth(
+                            text = "$weatherDailyPrefix: ${weatherSnapshot.dailySummary}",
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawText(
+                                titleLine,
+                                left,
+                                titleBaseline,
+                                widgetTitlePaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                temperatureLine,
+                                left,
+                                bodyBaseline,
+                                widgetBodyPaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                summaryLine,
+                                left,
+                                summaryBaseline,
+                                widgetSubtitlePaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                hourlyLine,
+                                left,
+                                hourlyBaseline,
+                                widgetSubtitlePaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                dailyLine,
+                                left,
+                                dailyBaseline,
+                                widgetSubtitlePaint,
+                            )
+                        }
+                    }
+
+                    CanvasWidgetType.Notifications -> {
+                        val horizontalPadding = max(WIDGET_INFO_HORIZONTAL_PADDING_PX, layout.widthPx * 0.08f)
+                        val titleSize = (layout.heightPx * 0.14f).coerceAtLeast(11f)
+                        val bodySize = (layout.heightPx * 0.22f)
+                            .coerceAtLeast(13f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_BODY_MAX_HEIGHT_FRACTION)
+                        val subtitleSize = (layout.heightPx * 0.11f)
+                            .coerceAtLeast(10f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION)
+                        val hasLiveTicker = notificationAccessEnabled &&
+                            notificationsEnabled &&
+                            liveNotificationEntries.isNotEmpty()
+                        val fallbackTickerText = when {
+                            !notificationAccessEnabled -> notificationAccessRequiredText
+                            !notificationsEnabled -> notificationPermissionRequiredText
+                            else -> notificationEmptyText
+                        }
+                        val statusColor = if (hasLiveTicker) {
+                            widgetNotificationsEnabledColor
+                        } else if (!notificationAccessEnabled || !notificationsEnabled) {
+                            widgetNotificationsDisabledColor
+                        } else {
+                            widgetSecondaryTextColor
+                        }
+                        widgetTitlePaint.textSize = titleSize
+                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetBodyPaint.textSize = bodySize
+                        widgetBodyPaint.color = statusColor.toArgb()
+                        widgetSubtitlePaint.textSize = subtitleSize
+                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+
+                        val titleBaseline = layout.topPx + layout.heightPx * 0.24f
+                        val bodyBaseline = layout.topPx + layout.heightPx * 0.58f
+                        val subtitleBaseline = layout.topPx + layout.heightPx * 0.82f
+                        val left = layout.leftPx + horizontalPadding
+                        val availableWidth = (layout.widthPx - horizontalPadding * 2f).coerceAtLeast(24f)
+                        val detailLine = ellipsizeToWidth(
+                            text = notificationSubtitle,
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val tickerLineHeight = (
+                            widgetBodyPaint.fontMetrics.descent - widgetBodyPaint.fontMetrics.ascent
+                            ) * WIDGET_NOTIFICATION_LINE_HEIGHT_MULTIPLIER
+                        val tickerRowTop = bodyBaseline + widgetBodyPaint.fontMetrics.ascent
+                        val tickerRowBottom = tickerRowTop + tickerLineHeight
+
+                        val tickerCurrentLine: String
+                        val tickerNextLine: String
+                        val tickerScrollOffsetY: Float
+                        if (hasLiveTicker) {
+                            val cycleDuration = WIDGET_NOTIFICATION_STATIONARY_MS + WIDGET_NOTIFICATION_SCROLL_MS
+                            val cycleTick = (tickerClockMs / cycleDuration).toInt()
+                            val phaseMs = tickerClockMs % cycleDuration
+                            val currentIndex = cycleTick % liveNotificationEntries.size
+                            val nextIndex = (currentIndex + 1) % liveNotificationEntries.size
+                            tickerCurrentLine = ellipsizeToWidth(
+                                text = liveNotificationEntries[currentIndex].text,
+                                paint = widgetBodyPaint,
+                                maxWidthPx = availableWidth,
+                            )
+                            tickerNextLine = ellipsizeToWidth(
+                                text = liveNotificationEntries[nextIndex].text,
+                                paint = widgetBodyPaint,
+                                maxWidthPx = availableWidth,
+                            )
+                            tickerScrollOffsetY = if (
+                                liveNotificationEntries.size <= 1 ||
+                                phaseMs < WIDGET_NOTIFICATION_STATIONARY_MS
+                            ) {
+                                0f
+                            } else {
+                                val progress = (phaseMs - WIDGET_NOTIFICATION_STATIONARY_MS).toFloat() /
+                                    WIDGET_NOTIFICATION_SCROLL_MS.toFloat()
+                                tickerLineHeight * progress.coerceIn(0f, 1f)
+                            }
+                        } else {
+                            tickerCurrentLine = ellipsizeToWidth(
+                                text = fallbackTickerText,
+                                paint = widgetBodyPaint,
+                                maxWidthPx = availableWidth,
+                            )
+                            tickerNextLine = tickerCurrentLine
+                            tickerScrollOffsetY = 0f
+                        }
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawText(
+                                notificationsTitleText,
+                                left,
+                                titleBaseline,
+                                widgetTitlePaint,
+                            )
+                            val clipSave = canvas.nativeCanvas.save()
+                            canvas.nativeCanvas.clipRect(
+                                left,
+                                tickerRowTop,
+                                left + availableWidth,
+                                tickerRowBottom,
+                            )
+                            if (hasLiveTicker && tickerScrollOffsetY > 0f) {
+                                canvas.nativeCanvas.drawText(
+                                    tickerCurrentLine,
+                                    left,
+                                    bodyBaseline - tickerScrollOffsetY,
+                                    widgetBodyPaint,
+                                )
+                                canvas.nativeCanvas.drawText(
+                                    tickerNextLine,
+                                    left,
+                                    bodyBaseline + tickerLineHeight - tickerScrollOffsetY,
+                                    widgetBodyPaint,
+                                )
+                            } else {
+                                canvas.nativeCanvas.drawText(
+                                    tickerCurrentLine,
+                                    left,
+                                    bodyBaseline,
+                                    widgetBodyPaint,
+                                )
+                            }
+                            canvas.nativeCanvas.restoreToCount(clipSave)
+                            canvas.nativeCanvas.drawText(
+                                detailLine,
+                                left,
+                                subtitleBaseline,
+                                widgetSubtitlePaint,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    widgetLayouts.forEach { layout ->
+        val widget = layout.widget
+        val isSelected = isWidgetMode && selectedWidgetIdForResize == widget.id
+
+        if (isWidgetMode) {
+            Box(
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = layout.leftPx
+                        translationY = layout.topPx
+                    }
+                    .requiredSize(
+                        width = with(density) { layout.widthPx.toDp() },
+                        height = with(density) { layout.heightPx.toDp() },
+                    )
+                    .zIndex(0.79f)
+                    .pointerInput(widget.id) {
+                        detectTapGestures(
+                            onTap = { onWidgetTap(widget.id) },
+                        )
+                    },
+            )
+        }
+
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = layout.centerZoneLeftPx
+                        translationY = layout.centerZoneTopPx
+                    }
+                    .requiredSize(
+                        width = with(density) { layout.centerZoneWidthPx.toDp() },
+                        height = with(density) { layout.centerZoneHeightPx.toDp() },
+                    )
+                    .zIndex(0.81f)
+                    .objectMoveModifier(
+                        enabled = true,
+                        target = CanvasObjectDragTarget.Widget(widget.id),
+                        nodeTopLeftScreen = ScreenPoint(
+                            x = layout.centerZoneLeftPx,
+                            y = layout.centerZoneTopPx,
+                        ),
+                        canvasWidthPx = cameraState.viewportWidthPx.toFloat(),
+                        canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
+                        autoPanZonePx = autoPanZonePx,
+                        autoPanMaxStepPx = autoPanMaxStepPx,
+                        onObjectDragStart = onObjectDragStart,
+                        onObjectDragDelta = onObjectDragDelta,
+                        onObjectDragEnd = onObjectDragEnd,
+                        onObjectDragCancel = onObjectDragCancel,
+                        onAutoPanDelta = onAutoPanDelta,
+                    ),
+            )
+            Canvas(
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = layout.leftPx
+                        translationY = layout.topPx
+                    }
+                    .requiredSize(
+                        width = with(density) { layout.widthPx.toDp() },
+                        height = with(density) { layout.heightPx.toDp() },
+                    )
+                    .zIndex(0.82f),
+            ) {
+                drawRoundRect(
+                    color = widgetSelectionColor,
+                    cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
+                    style = Stroke(
+                        width = frameBorderStrokePx,
+                        pathEffect = PathEffect.dashPathEffect(
+                            intervals = floatArrayOf(12f, 8f),
+                            phase = 0f,
+                        ),
+                    ),
+                )
+            }
+            FrameResizeHandles(
+                frameId = widget.id,
+                frameLeftPx = layout.leftPx,
+                frameTopPx = layout.topPx,
+                frameWidthPx = layout.widthPx,
+                frameHeightPx = layout.heightPx,
+                onFrameResizeStart = { _, handle -> onWidgetResizeStart(handle) },
+                onFrameResizeDrag = { _, handle, delta -> onWidgetResizeDrag(handle, delta) },
+                onFrameResizeEnd = onWidgetResizeEnd,
+            )
+            SelectionDeleteButton(
+                onClick = onWidgetDeleteTap,
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = layout.center.x - with(density) { 18.dp.toPx() }
+                        translationY = layout.topPx - with(density) { DELETE_BUTTON_VERTICAL_OFFSET_DP.toPx() }
+                    }
+                    .zIndex(0.84f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun rememberWidgetTime(
+    enabled: Boolean,
+    updateEverySecond: Boolean,
+): LocalTime {
+    val currentTime by produceState(
+        initialValue = LocalTime.now(),
+        key1 = enabled,
+        key2 = updateEverySecond,
+    ) {
+        if (!enabled) {
+            value = LocalTime.now()
+            return@produceState
+        }
+        while (true) {
+            val now = LocalTime.now()
+            value = now
+            val millisUntilNextTick = if (updateEverySecond) {
+                1_000L - (now.nano / 1_000_000L)
+            } else {
+                ((60 - now.second).coerceAtLeast(1) * 1_000L) - (now.nano / 1_000_000L)
+            }
+            delay(millisUntilNextTick.coerceAtLeast(120L))
+        }
+    }
+    return currentTime
+}
+
+@Composable
+private fun rememberNotificationsEnabledFlag(
+    context: Context,
+    enabled: Boolean,
+): Boolean {
+    val appContext = remember(context) { context.applicationContext }
+    val notificationsEnabled by produceState(
+        initialValue = NotificationManagerCompat.from(appContext).areNotificationsEnabled(),
+        key1 = appContext,
+        key2 = enabled,
+    ) {
+        if (!enabled) {
+            value = false
+            return@produceState
+        }
+        while (true) {
+            value = NotificationManagerCompat.from(appContext).areNotificationsEnabled()
+            delay(WIDGET_NOTIFICATIONS_POLL_MS)
+        }
+    }
+    return notificationsEnabled
+}
+
+@Composable
+private fun rememberNotificationListenerAccessFlag(
+    context: Context,
+    enabled: Boolean,
+): Boolean {
+    val appContext = remember(context) { context.applicationContext }
+    val accessEnabled by produceState(
+        initialValue = hasNotificationListenerAccess(appContext),
+        key1 = appContext,
+        key2 = enabled,
+    ) {
+        if (!enabled) {
+            value = false
+            return@produceState
+        }
+        while (true) {
+            value = hasNotificationListenerAccess(appContext)
+            delay(WIDGET_NOTIFICATIONS_POLL_MS)
+        }
+    }
+    return accessEnabled
+}
+
+@Composable
+private fun rememberNotificationEntries(enabled: Boolean): List<WidgetNotificationEntry> {
+    val entries by produceState(
+        initialValue = emptyList<WidgetNotificationEntry>(),
+        key1 = enabled,
+    ) {
+        if (!enabled) {
+            value = emptyList()
+            return@produceState
+        }
+        CanvasNotificationFeed.entries.collect { current ->
+            value = current
+        }
+    }
+    return entries
+}
+
+@Composable
+private fun rememberTickerClock(enabled: Boolean): Long {
+    val now by produceState(
+        initialValue = System.currentTimeMillis(),
+        key1 = enabled,
+    ) {
+        if (!enabled) {
+            value = System.currentTimeMillis()
+            return@produceState
+        }
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(WIDGET_NOTIFICATION_TICKER_FRAME_MS)
+        }
+    }
+    return now
+}
+
+private data class WeatherWidgetSnapshot(
+    val temperatureText: String,
+    val condition: String,
+    val locationLabel: String,
+    val hourlySummary: String,
+    val dailySummary: String,
+    val isResolved: Boolean,
+)
+
+@Composable
+private fun rememberWeatherWidgetSnapshot(
+    context: Context,
+    enabled: Boolean,
+): WeatherWidgetSnapshot {
+    val appContext = remember(context) { context.applicationContext }
+    val waitingCondition = stringResource(id = R.string.widget_weather_waiting)
+    val localAreaLabel = stringResource(id = R.string.widget_weather_local_area)
+    val weatherUnavailable = stringResource(id = R.string.widget_weather_unavailable)
+    val connectionRequired = stringResource(id = R.string.widget_weather_connection_required)
+    val hourlyUnavailable = stringResource(id = R.string.widget_weather_hourly_unavailable)
+    val dailyUnavailable = stringResource(id = R.string.widget_weather_daily_unavailable)
+    val snapshot by produceState(
+        initialValue = WeatherWidgetSnapshot(
+            temperatureText = WIDGET_UNAVAILABLE_VALUE,
+            condition = waitingCondition,
+            locationLabel = localAreaLabel,
+            hourlySummary = hourlyUnavailable,
+            dailySummary = dailyUnavailable,
+            isResolved = false,
+        ),
+        key1 = appContext,
+        key2 = enabled,
+    ) {
+        if (!enabled) {
+            value = WeatherWidgetSnapshot(
+                temperatureText = WIDGET_UNAVAILABLE_VALUE,
+                condition = waitingCondition,
+                locationLabel = localAreaLabel,
+                hourlySummary = hourlyUnavailable,
+                dailySummary = dailyUnavailable,
+                isResolved = false,
+            )
+            return@produceState
+        }
+        while (true) {
+            value = runCatching {
+                loadWeatherSnapshot(appContext)
+            }.getOrElse {
+                WeatherWidgetSnapshot(
+                    temperatureText = WIDGET_UNAVAILABLE_VALUE,
+                    condition = weatherUnavailable,
+                    locationLabel = connectionRequired,
+                    hourlySummary = hourlyUnavailable,
+                    dailySummary = dailyUnavailable,
+                    isResolved = false,
+                )
+            }
+            delay(WIDGET_WEATHER_REFRESH_MS)
+        }
+    }
+    return snapshot
+}
+
+private suspend fun loadWeatherSnapshot(context: Context): WeatherWidgetSnapshot {
+    if (!hasLocationPermission(context)) {
+        return WeatherWidgetSnapshot(
+            temperatureText = WIDGET_UNAVAILABLE_VALUE,
+            condition = context.getString(R.string.widget_weather_location_required),
+            locationLabel = context.getString(R.string.widget_weather_grant_location_access),
+            hourlySummary = context.getString(R.string.widget_weather_hourly_unavailable),
+            dailySummary = context.getString(R.string.widget_weather_daily_unavailable),
+            isResolved = false,
+        )
+    }
+    val location = withContext(Dispatchers.IO) {
+        resolveBestLastKnownLocation(context)
+    } ?: return WeatherWidgetSnapshot(
+        temperatureText = WIDGET_UNAVAILABLE_VALUE,
+        condition = context.getString(R.string.widget_weather_locating_device),
+        locationLabel = context.getString(R.string.widget_weather_location_not_ready),
+        hourlySummary = context.getString(R.string.widget_weather_hourly_unavailable),
+        dailySummary = context.getString(R.string.widget_weather_daily_unavailable),
+        isResolved = false,
+    )
+    val locationLabel = resolveLocationLabel(
+        context = context,
+        latitude = location.latitude,
+        longitude = location.longitude,
+    )
+    val weather = fetchWeatherAtLocation(
+        context = context,
+        latitude = location.latitude,
+        longitude = location.longitude,
+    ) ?: return WeatherWidgetSnapshot(
+        temperatureText = WIDGET_UNAVAILABLE_VALUE,
+        condition = context.getString(R.string.widget_weather_unavailable),
+        locationLabel = locationLabel,
+        hourlySummary = context.getString(R.string.widget_weather_hourly_unavailable),
+        dailySummary = context.getString(R.string.widget_weather_daily_unavailable),
+        isResolved = false,
+    )
+    return WeatherWidgetSnapshot(
+        temperatureText = context.getString(R.string.widget_weather_temperature_c, weather.temperatureC),
+        condition = weather.condition,
+        locationLabel = locationLabel,
+        hourlySummary = formatHourlyForecastSummary(context, weather.hourlyForecast),
+        dailySummary = formatDailyForecastSummary(context, weather.dailyForecast),
+        isResolved = true,
+    )
+}
+
+private data class LiveWeatherData(
+    val temperatureC: Int,
+    val condition: String,
+    val hourlyForecast: List<LiveHourlyForecastEntry>,
+    val dailyForecast: List<LiveDailyForecastEntry>,
+)
+
+private data class LiveHourlyForecastEntry(
+    val hourLabel: String,
+    val temperatureC: Int,
+)
+
+private data class LiveDailyForecastEntry(
+    val dayLabel: String,
+    val maxTempC: Int,
+    val minTempC: Int,
+)
+
+private suspend fun fetchWeatherAtLocation(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+): LiveWeatherData? {
+    return withContext(Dispatchers.IO) {
+        val lat = String.format(Locale.US, "%.4f", latitude)
+        val lon = String.format(Locale.US, "%.4f", longitude)
+        val endpoint = URL(
+            "https://api.open-meteo.com/v1/forecast" +
+                "?latitude=$lat&longitude=$lon" +
+                "&current=temperature_2m,weather_code" +
+                "&hourly=temperature_2m" +
+                "&daily=temperature_2m_max,temperature_2m_min" +
+                "&forecast_days=4&timezone=auto",
+        )
+        val connection = (endpoint.openConnection() as? HttpURLConnection) ?: return@withContext null
+        connection.connectTimeout = WIDGET_WEATHER_NETWORK_TIMEOUT_MS
+        connection.readTimeout = WIDGET_WEATHER_NETWORK_TIMEOUT_MS
+        connection.requestMethod = "GET"
+        connection.doInput = true
+        try {
+            connection.connect()
+            if (connection.responseCode !in 200..299) return@withContext null
+            val payload = connection.inputStream.bufferedReader().use { reader -> reader.readText() }
+            val json = JSONObject(payload)
+            val current = json.optJSONObject("current") ?: return@withContext null
+            val temperature = current.optDouble("temperature_2m", Double.NaN)
+            if (temperature.isNaN()) return@withContext null
+            val code = current.optInt("weather_code", Int.MIN_VALUE)
+            val now = current.optString("time", "")
+            val hourly = parseHourlyForecast(
+                times = json.optJSONObject("hourly")?.optJSONArray("time"),
+                temperatures = json.optJSONObject("hourly")?.optJSONArray("temperature_2m"),
+                fromIsoTime = now,
+            )
+            val daily = parseDailyForecast(
+                times = json.optJSONObject("daily")?.optJSONArray("time"),
+                maxTemperatures = json.optJSONObject("daily")?.optJSONArray("temperature_2m_max"),
+                minTemperatures = json.optJSONObject("daily")?.optJSONArray("temperature_2m_min"),
+            )
+            LiveWeatherData(
+                temperatureC = temperature.roundToInt(),
+                condition = weatherCodeToLabel(context, code),
+                hourlyForecast = hourly,
+                dailyForecast = daily,
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
+private fun parseHourlyForecast(
+    times: JSONArray?,
+    temperatures: JSONArray?,
+    fromIsoTime: String,
+): List<LiveHourlyForecastEntry> {
+    if (times == null || temperatures == null || times.length() != temperatures.length()) return emptyList()
+    val currentTime = runCatching { LocalDateTime.parse(fromIsoTime) }.getOrNull()
+    val entries = mutableListOf<LiveHourlyForecastEntry>()
+    for (index in 0 until times.length()) {
+        val timeIso = times.optString(index, "")
+        val parsed = runCatching { LocalDateTime.parse(timeIso) }.getOrNull() ?: continue
+        if (currentTime != null && parsed.isBefore(currentTime)) continue
+        val temp = temperatures.optDouble(index, Double.NaN)
+        if (temp.isNaN()) continue
+        entries += LiveHourlyForecastEntry(
+            hourLabel = parsed.toLocalTime().format(WIDGET_HOURLY_TIME_FORMATTER),
+            temperatureC = temp.roundToInt(),
+        )
+        if (entries.size >= WIDGET_HOURLY_FORECAST_ITEMS) break
+    }
+    return entries
+}
+
+private fun parseDailyForecast(
+    times: JSONArray?,
+    maxTemperatures: JSONArray?,
+    minTemperatures: JSONArray?,
+): List<LiveDailyForecastEntry> {
+    if (
+        times == null ||
+        maxTemperatures == null ||
+        minTemperatures == null ||
+        times.length() != maxTemperatures.length() ||
+        times.length() != minTemperatures.length()
+    ) {
+        return emptyList()
+    }
+    val entries = mutableListOf<LiveDailyForecastEntry>()
+    for (index in 0 until times.length()) {
+        val dateIso = times.optString(index, "")
+        val date = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: continue
+        val max = maxTemperatures.optDouble(index, Double.NaN)
+        val min = minTemperatures.optDouble(index, Double.NaN)
+        if (max.isNaN() || min.isNaN()) continue
+        entries += LiveDailyForecastEntry(
+            dayLabel = date.format(WIDGET_DAILY_DAY_FORMATTER),
+            maxTempC = max.roundToInt(),
+            minTempC = min.roundToInt(),
+        )
+        if (entries.size >= WIDGET_DAILY_FORECAST_ITEMS) break
+    }
+    return entries
+}
+
+private fun formatHourlyForecastSummary(
+    context: Context,
+    hourly: List<LiveHourlyForecastEntry>,
+): String {
+    if (hourly.isEmpty()) return context.getString(R.string.widget_weather_hourly_unavailable)
+    return hourly.joinToString(separator = " • ") { item ->
+        context.getString(
+            R.string.widget_weather_hourly_item,
+            item.hourLabel,
+            item.temperatureC,
+        )
+    }
+}
+
+private fun formatDailyForecastSummary(
+    context: Context,
+    daily: List<LiveDailyForecastEntry>,
+): String {
+    if (daily.isEmpty()) return context.getString(R.string.widget_weather_daily_unavailable)
+    return daily.joinToString(separator = " • ") { item ->
+        context.getString(
+            R.string.widget_weather_daily_item,
+            item.dayLabel,
+            item.maxTempC,
+            item.minTempC,
+        )
+    }
+}
+
+private suspend fun resolveLocationLabel(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+): String {
+    val locationFromGeocoder = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        runCatching {
+            @Suppress("DEPRECATION")
+            Geocoder(context, Locale.getDefault()).getFromLocation(latitude, longitude, 1)
+        }.getOrNull()
+            ?.firstOrNull()
+            ?.let { address ->
+                address.locality
+                    ?: address.subAdminArea
+                    ?: address.adminArea
+                    ?: address.countryName
+            }
+    }
+    return locationFromGeocoder ?: context.getString(
+        R.string.widget_weather_location_coordinates,
+        "%.2f".format(Locale.US, latitude),
+        "%.2f".format(Locale.US, longitude),
+    )
+}
+
+private fun weatherCodeToLabel(context: Context, code: Int): String {
+    val stringRes = when (code) {
+        0 -> R.string.widget_weather_code_clear_sky
+        1, 2 -> R.string.widget_weather_code_partly_cloudy
+        3 -> R.string.widget_weather_code_overcast
+        45, 48 -> R.string.widget_weather_code_fog
+        51, 53, 55 -> R.string.widget_weather_code_light_drizzle
+        56, 57 -> R.string.widget_weather_code_freezing_drizzle
+        61, 63, 65 -> R.string.widget_weather_code_rain
+        66, 67 -> R.string.widget_weather_code_freezing_rain
+        71, 73, 75, 77 -> R.string.widget_weather_code_snow
+        80, 81, 82 -> R.string.widget_weather_code_rain_showers
+        85, 86 -> R.string.widget_weather_code_snow_showers
+        95 -> R.string.widget_weather_code_thunderstorm
+        96, 99 -> R.string.widget_weather_code_thunderstorm_hail
+        else -> R.string.widget_weather_code_current
+    }
+    return context.getString(stringRes)
+}
+
+private fun hasNotificationListenerAccess(context: Context): Boolean {
+    val listeners = Settings.Secure.getString(
+        context.contentResolver,
+        NOTIFICATION_LISTENERS_SETTING_KEY,
+    ) ?: return false
+    val componentName = ComponentName(context, CanvasNotificationListenerService::class.java)
+    val full = componentName.flattenToString()
+    val short = componentName.flattenToShortString()
+    return listeners.split(':').any { listener ->
+        listener.equals(full, ignoreCase = true) || listener.equals(short, ignoreCase = true)
+    }
+}
+
+private fun applyPaintTypography(
+    paint: AndroidPaint,
+    style: TextStyle,
+) {
+    val baseTypeface = style.fontFamily.toAndroidTypeface()
+    val isBold = (style.fontWeight ?: FontWeight.Normal).weight >= FontWeight.SemiBold.weight
+    paint.typeface = Typeface.create(baseTypeface, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+}
+
+private fun FontFamily?.toAndroidTypeface(): Typeface {
+    return when (this) {
+        FontFamily.Monospace -> Typeface.MONOSPACE
+        FontFamily.Serif -> Typeface.SERIF
+        FontFamily.SansSerif -> Typeface.SANS_SERIF
+        FontFamily.Cursive -> Typeface.create("cursive", Typeface.NORMAL)
+        else -> Typeface.DEFAULT
+    }
+}
+
+private fun hasLocationPermission(context: Context): Boolean {
+    val fineGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
+    val coarseGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
+    return fineGranted || coarseGranted
+}
+
+@Suppress("MissingPermission")
+private fun resolveBestLastKnownLocation(context: Context): Location? {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+    val providers = listOf(
+        LocationManager.FUSED_PROVIDER,
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER,
+        LocationManager.PASSIVE_PROVIDER,
+    )
+    return providers.asSequence()
+        .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
+        .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+        .minByOrNull { location -> location.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE }
 }
 
 @Composable
@@ -2094,7 +3019,7 @@ private fun ellipsizeToWidth(
     paint: AndroidPaint,
     maxWidthPx: Float,
 ): String {
-    val ellipsis = "…"
+    val ellipsis = "..."
     if (paint.measureText(text) <= maxWidthPx) return text
     if (paint.measureText(ellipsis) > maxWidthPx) return ""
     var end = text.length
@@ -2102,6 +3027,29 @@ private fun ellipsizeToWidth(
         end--
     }
     return text.substring(0, end).trimEnd() + ellipsis
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWidgetClockHand(
+    center: Offset,
+    radius: Float,
+    progress: Float,
+    lengthFactor: Float,
+    strokeWidth: Float,
+    color: Color,
+) {
+    val angleRad = (progress * (2f * PI.toFloat())) - (PI.toFloat() / 2f)
+    val handLength = radius * lengthFactor
+    val end = Offset(
+        x = center.x + cos(angleRad) * handLength,
+        y = center.y + sin(angleRad) * handLength,
+    )
+    drawLine(
+        color = color,
+        start = center,
+        end = end,
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round,
+    )
 }
 
 private data class FrameResizeHandlePlacement(
@@ -2188,7 +3136,37 @@ private const val WIDGET_CLOCK_MIN_TEXT_SIZE_PX = 10f
 private const val WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION = 0.70f
 private const val WIDGET_CORNER_RADIUS_PX = 16f
 private const val WIDGET_BORDER_STROKE_PX = 1.4f
+private const val WIDGET_INFO_HORIZONTAL_PADDING_PX = 16f
+private const val WIDGET_INFO_BODY_MAX_HEIGHT_FRACTION = 0.68f
+private const val WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION = 0.34f
+private const val WIDGET_ANALOG_FACE_DIAMETER_FACTOR = 0.80f
+private const val WIDGET_ANALOG_OUTER_STROKE_FACTOR = 0.036f
+private const val WIDGET_ANALOG_MIN_STROKE_PX = 1.4f
+private const val WIDGET_ANALOG_MARKER_INNER_FACTOR = 0.78f
+private const val WIDGET_ANALOG_HOUR_HAND_LENGTH_FACTOR = 0.52f
+private const val WIDGET_ANALOG_MINUTE_HAND_LENGTH_FACTOR = 0.74f
+private const val WIDGET_ANALOG_SECOND_HAND_LENGTH_FACTOR = 0.84f
+private const val WIDGET_ANALOG_CENTER_DOT_FACTOR = 0.065f
+private const val WIDGET_ANALOG_FACE_FILL_ALPHA = 0.14f
+private const val WIDGET_WEATHER_REFRESH_MS = 15 * 60 * 1_000L
+private const val WIDGET_WEATHER_NETWORK_TIMEOUT_MS = 4_500
+private const val WIDGET_NOTIFICATIONS_POLL_MS = 3_000L
+private const val WIDGET_NOTIFICATION_STATIONARY_MS = 5_000L
+private const val WIDGET_NOTIFICATION_SCROLL_MS = 850L
+private const val WIDGET_NOTIFICATION_TICKER_FRAME_MS = 48L
+private const val WIDGET_NOTIFICATION_LINE_HEIGHT_MULTIPLIER = 1.18f
+private const val WIDGET_HOURLY_FORECAST_ITEMS = 3
+private const val WIDGET_DAILY_FORECAST_ITEMS = 3
+private const val WIDGET_UNAVAILABLE_VALUE = "--"
+private const val NOTIFICATION_LISTENERS_SETTING_KEY = "enabled_notification_listeners"
 private const val TEXT_ESTIMATED_CHAR_WIDTH_FACTOR = 0.58f
 private const val TEXT_ESTIMATED_LINE_HEIGHT_MULTIPLIER = 1.12f
 private const val TEXT_ESTIMATED_MIN_WIDTH_MULTIPLIER = 0.9f
 private const val OBJECT_DRAG_START_SLOP_MULTIPLIER = 1.0f
+private val WIDGET_DIGITAL_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+private val WIDGET_HOURLY_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+private val WIDGET_DAILY_DAY_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("EEE", Locale.getDefault())
+

@@ -20,6 +20,9 @@ data class SearchUiState(
     val topMatchPackageName: String? = null,
     val topMatchLabel: String? = null,
     val showLaunchAction: Boolean = false,
+    val topContactLabel: String? = null,
+    val topContactDialNumber: String? = null,
+    val showCallContactAction: Boolean = false,
 )
 
 data class AppsListItemUiState(
@@ -47,6 +50,24 @@ data class WidgetsUiState(
             title = "Clock",
             subtitle = "Digital, no seconds",
             widgetType = CanvasWidgetType.ClockDigital,
+        ),
+        WidgetCatalogItemUiState(
+            id = "clock-analog",
+            title = "Analog clock",
+            subtitle = "Classic dial with hands",
+            widgetType = CanvasWidgetType.ClockAnalog,
+        ),
+        WidgetCatalogItemUiState(
+            id = "weather",
+            title = "Weather",
+            subtitle = "Compact weather card",
+            widgetType = CanvasWidgetType.Weather,
+        ),
+        WidgetCatalogItemUiState(
+            id = "notifications",
+            title = "Notifications",
+            subtitle = "System alert status",
+            widgetType = CanvasWidgetType.Notifications,
         ),
     ),
 )

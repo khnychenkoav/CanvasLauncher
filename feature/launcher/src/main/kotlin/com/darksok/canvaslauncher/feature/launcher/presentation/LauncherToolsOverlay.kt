@@ -95,6 +95,7 @@ fun LauncherToolsOverlay(
     onSearchActionClick: () -> Unit,
     onSearchSubmit: () -> Unit,
     onSearchOpenInBrowser: (String) -> Unit,
+    onSearchCallContact: (String) -> Unit,
     onSearchLaunchTopMatch: () -> Unit,
     onSearchClose: () -> Unit,
     onSearchOcclusionChanged: (Int) -> Unit,
@@ -165,15 +166,43 @@ fun LauncherToolsOverlay(
                 .fillMaxWidth()
                 .onSizeChanged { size -> toolsContentHeightPx = size.height },
         ) {
+            val canLaunchTopApp = toolsState.search.showLaunchAction && toolsState.search.topMatchLabel != null
+            val canCallTopContact = toolsState.search.showCallContactAction &&
+                toolsState.search.topContactLabel != null &&
+                toolsState.search.topContactDialNumber != null
             AnimatedVisibility(
-                visible = toolsState.isSearchActive && toolsState.search.showLaunchAction && toolsState.search.topMatchLabel != null,
+                visible = toolsState.isSearchActive && (canLaunchTopApp || canCallTopContact),
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
             ) {
-                SearchLaunchButton(
-                    appLabel = toolsState.search.topMatchLabel.orEmpty(),
-                    onClick = onSearchLaunchTopMatch,
-                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (canLaunchTopApp) {
+                        SearchActionButton(
+                            text = stringResource(
+                                id = R.string.search_launch_top_match,
+                                toolsState.search.topMatchLabel.orEmpty(),
+                            ),
+                            onClick = onSearchLaunchTopMatch,
+                        )
+                    }
+                    if (canCallTopContact) {
+                        SearchActionButton(
+                            text = stringResource(
+                                id = R.string.search_call_contact,
+                                toolsState.search.topContactLabel.orEmpty(),
+                            ),
+                            onClick = {
+                                val number = toolsState.search.topContactDialNumber
+                                if (!number.isNullOrBlank()) {
+                                    onSearchCallContact(number)
+                                }
+                            },
+                        )
+                    }
+                }
             }
 
             AnimatedContent(
@@ -481,8 +510,8 @@ private fun WidgetsPanelContent(
 }
 
 @Composable
-private fun SearchLaunchButton(
-    appLabel: String,
+private fun SearchActionButton(
+    text: String,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -499,7 +528,7 @@ private fun SearchLaunchButton(
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
-                text = stringResource(id = R.string.search_launch_top_match, appLabel),
+                text = text,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold,
