@@ -1,6 +1,6 @@
 package com.darksok.canvaslauncher.settings
 
-import android.content.ContextWrapper
+import android.content.Context
 import com.darksok.canvaslauncher.core.common.coroutines.DispatchersProvider
 import com.darksok.canvaslauncher.core.database.dao.CanvasEditDao
 import com.darksok.canvaslauncher.core.database.dao.CanvasStrokeWithPointsEntity
@@ -33,6 +33,7 @@ import com.darksok.canvaslauncher.domain.usecase.SetLayoutModeUseCase
 import com.darksok.canvaslauncher.domain.usecase.SetLightThemePaletteUseCase
 import com.darksok.canvaslauncher.domain.usecase.SetThemeModeUseCase
 import com.google.common.truth.Truth.assertThat
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,8 +50,13 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class SettingsViewModelTest {
 
     @Test
@@ -177,6 +183,66 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `icon color layout rearranges apps and upserts auto frames`() = runTestWithMain {
+        val dependencies = createDependencies(
+            snapshot = listOf(
+                CanvasApp("pkg.alpha", "Alpha", WorldPoint(-120f, -40f)),
+                CanvasApp("pkg.beta", "Beta", WorldPoint(80f, 40f)),
+                CanvasApp("pkg.gamma", "Gamma", WorldPoint(180f, 140f)),
+            ),
+            existingFrames = listOf(
+                CanvasFrameObjectEntity("auto-layout-frame-icon_color-old", "Old", 0f, 0f, 100f, 100f, 0),
+                CanvasFrameObjectEntity("manual-frame", "Manual", 0f, 0f, 100f, 100f, 0),
+            ),
+        )
+        val viewModel = dependencies.createViewModel()
+
+        viewModel.onLayoutModeSelected(AppLayoutMode.ICON_COLOR)
+        advanceUntilIdle()
+
+        assertThat(dependencies.layoutRepository.state.value).isEqualTo(AppLayoutMode.ICON_COLOR)
+        assertThat(dependencies.appsStore.lastUpsertedApps).hasSize(3)
+        assertThat(dependencies.iconCacheGateway.preloadedPackages).containsAtLeast(
+            "pkg.alpha",
+            "pkg.beta",
+            "pkg.gamma",
+        )
+        assertThat(dependencies.canvasEditDao.upsertedFrames).isNotEmpty()
+        assertThat(dependencies.canvasEditDao.upsertedFrames.all { frame ->
+            frame.id.startsWith("auto-layout-frame-icon_color-")
+        }).isTrue()
+        assertThat(dependencies.canvasEditDao.deletedFrameIds).contains("auto-layout-frame-icon_color-old")
+        assertThat(dependencies.canvasEditDao.deletedFrameIds).doesNotContain("manual-frame")
+    }
+
+    @Test
+    fun `smart auto layout upserts grouped frames and removes stale auto frames`() = runTestWithMain {
+        val dependencies = createDependencies(
+            snapshot = listOf(
+                CanvasApp("pkg.camera", "Camera", WorldPoint(-220f, -20f)),
+                CanvasApp("pkg.gallery", "Gallery", WorldPoint(-120f, 20f)),
+                CanvasApp("pkg.phone", "Phone", WorldPoint(120f, 20f)),
+                CanvasApp("pkg.maps", "Maps", WorldPoint(240f, 120f)),
+            ),
+            existingFrames = listOf(
+                CanvasFrameObjectEntity("auto-layout-frame-smart_auto-old", "Old", 0f, 0f, 100f, 100f, 0),
+            ),
+        )
+        val viewModel = dependencies.createViewModel()
+
+        viewModel.onLayoutModeSelected(AppLayoutMode.SMART_AUTO)
+        advanceUntilIdle()
+
+        assertThat(dependencies.layoutRepository.state.value).isEqualTo(AppLayoutMode.SMART_AUTO)
+        assertThat(dependencies.appsStore.lastUpsertedApps).hasSize(4)
+        assertThat(dependencies.canvasEditDao.upsertedFrames).isNotEmpty()
+        assertThat(dependencies.canvasEditDao.upsertedFrames.all { frame ->
+            frame.id.startsWith("auto-layout-frame-smart_auto-") && frame.title.isNotBlank()
+        }).isTrue()
+        assertThat(dependencies.canvasEditDao.deletedFrameIds).contains("auto-layout-frame-smart_auto-old")
+    }
+
+    @Test
     fun `ui state reacts to repository updates after creation`() = runTestWithMain {
         val dependencies = createDependencies()
         val viewModel = dependencies.createViewModel()
@@ -209,6 +275,7 @@ class SettingsViewModelTest {
         initialLayoutMode: AppLayoutMode = AppLayoutMode.SPIRAL,
         snapshot: List<CanvasApp> = emptyList(),
         existingFrames: List<CanvasFrameObjectEntity> = emptyList(),
+        appContext: Context = ApplicationProvider.getApplicationContext(),
     ): TestDependencies {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val themeRepository = FakeThemePreferencesRepository(
@@ -220,12 +287,17 @@ class SettingsViewModelTest {
         val appsStore = FakeCanvasAppsStore(snapshot)
         val canvasEditDao = FakeCanvasEditDao(existingFrames)
         val layoutStrategy = FakeLayoutStrategy()
+        val iconCacheGateway = FakeIconCacheGateway()
+        val iconBitmapStore = FakeIconBitmapStore()
         return TestDependencies(
             themeRepository = themeRepository,
             layoutRepository = layoutRepository,
             appsStore = appsStore,
             canvasEditDao = canvasEditDao,
             layoutStrategy = layoutStrategy,
+            iconCacheGateway = iconCacheGateway,
+            iconBitmapStore = iconBitmapStore,
+            appContext = appContext,
             dispatcher = dispatcher,
         )
     }
@@ -246,6 +318,9 @@ class SettingsViewModelTest {
         val appsStore: FakeCanvasAppsStore,
         val canvasEditDao: FakeCanvasEditDao,
         val layoutStrategy: FakeLayoutStrategy,
+        val iconCacheGateway: FakeIconCacheGateway,
+        val iconBitmapStore: FakeIconBitmapStore,
+        val appContext: Context,
         val dispatcher: CoroutineDispatcher,
     ) {
         fun createViewModel(): SettingsViewModel {
@@ -265,14 +340,14 @@ class SettingsViewModelTest {
                 rearrangeAppsUseCase = rearrangeUseCase,
                 appsStore = appsStore,
                 canvasEditDao = canvasEditDao,
-                iconCacheGateway = FakeIconCacheGateway(),
-                iconBitmapStore = FakeIconBitmapStore(),
+                iconCacheGateway = iconCacheGateway,
+                iconBitmapStore = iconBitmapStore,
                 dispatchersProvider = object : DispatchersProvider {
                     override val io: CoroutineDispatcher = dispatcher
                     override val default: CoroutineDispatcher = dispatcher
                     override val main: CoroutineDispatcher = dispatcher
                 },
-                appContext = ContextWrapper(null),
+                appContext = appContext,
             )
         }
     }
@@ -392,7 +467,11 @@ class SettingsViewModelTest {
     }
 
     private class FakeIconCacheGateway : IconCacheGateway {
-        override suspend fun preload(packageNames: Collection<String>) = Unit
+        val preloadedPackages = mutableListOf<String>()
+
+        override suspend fun preload(packageNames: Collection<String>) {
+            preloadedPackages += packageNames
+        }
         override suspend fun invalidate(packageName: String) = Unit
         override suspend fun remove(packageName: String) = Unit
     }

@@ -141,8 +141,7 @@ object SmartLayoutGrouping {
                 val packageSegments = packageName.split('.')
                 val vendor = when {
                     packageSegments.size >= 2 -> packageSegments[1]
-                    packageSegments.size == 1 -> packageSegments.first()
-                    else -> null
+                    else -> packageSegments.first()
                 }?.takeIf { candidate -> candidate.isNotBlank() }
                 val isSystem = SYSTEM_PACKAGE_PREFIXES.any { prefix -> packageName.startsWith(prefix) }
                 return PreparedApp(

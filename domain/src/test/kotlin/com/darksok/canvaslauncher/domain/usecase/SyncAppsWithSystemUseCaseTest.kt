@@ -147,4 +147,30 @@ class SyncAppsWithSystemUseCaseTest {
         assertThat(report.removed).isEqualTo(0)
         assertThat(report.updated).isEqualTo(0)
     }
+
+    @Test
+    fun `sync keeps unchanged existing apps when building effective existing list`() = runTest {
+        val strategy = FakeLayoutStrategy()
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(
+                listOf(
+                    InstalledApp("pkg.keep", "Keep"),
+                    InstalledApp("pkg.new", "New"),
+                ),
+            ),
+            appsStore = FakeCanvasAppsStore(
+                listOf(CanvasApp("pkg.keep", "Keep", WorldPoint(7f, 3f))),
+            ),
+            layoutStrategy = strategy,
+            iconCacheGateway = FakeIconCacheGateway(),
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(),
+        )
+
+        val report = useCase()
+
+        assertThat(report.added).isEqualTo(1)
+        val call = strategy.calls.single()
+        assertThat(call.existingApps.single().packageName).isEqualTo("pkg.keep")
+        assertThat(call.existingApps.single().label).isEqualTo("Keep")
+    }
 }

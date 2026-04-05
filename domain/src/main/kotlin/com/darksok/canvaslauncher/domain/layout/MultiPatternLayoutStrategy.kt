@@ -93,14 +93,11 @@ class MultiPatternLayoutStrategy @Inject constructor() : InitialLayoutStrategy {
             allApps = all,
             center = center,
         )
-        if (positionByPackage.isEmpty()) {
-            return layoutRectangle(existingApps, newApps, center)
-        }
 
         val occupied = existingApps.map { app -> app.position }.toMutableList()
 
         return newApps.map { app ->
-            val preferred = positionByPackage[app.packageName] ?: center
+            val preferred = positionByPackage.getValue(app.packageName)
             val safePosition = if (isPositionFree(preferred, occupied)) {
                 preferred
             } else {

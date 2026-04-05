@@ -48,4 +48,13 @@ class ThemeModeTest {
     fun `value of dark returns dark`() {
         assertThat(ThemeMode.valueOf("DARK")).isEqualTo(ThemeMode.DARK)
     }
+
+    @Test
+    fun `theme mode entries mirror values order`() {
+        assertThat(ThemeMode.entries.map { it.name }).containsExactly(
+            "SYSTEM",
+            "LIGHT",
+            "DARK",
+        ).inOrder()
+    }
 }

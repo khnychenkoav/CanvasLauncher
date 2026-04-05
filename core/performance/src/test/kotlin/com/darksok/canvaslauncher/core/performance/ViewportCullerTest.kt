@@ -9,6 +9,17 @@ import org.junit.Test
 class ViewportCullerTest {
 
     @Test
+    fun `visible world rect uses default culling buffer`() {
+        val defaultRect = ViewportCuller.visibleWorldRect(camera())
+        val explicitRect = ViewportCuller.visibleWorldRect(
+            camera(),
+            bufferWorld = com.darksok.canvaslauncher.core.model.canvas.CanvasConstants.Sizes.CULLING_BUFFER_WORLD,
+        )
+
+        assertThat(defaultRect).isEqualTo(explicitRect)
+    }
+
+    @Test
     fun `visible world rect matches viewport around center`() {
         val rect = ViewportCuller.visibleWorldRect(camera(), bufferWorld = 0f)
 

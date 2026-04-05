@@ -8,6 +8,10 @@ import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.sin
 
 class MultiPatternLayoutStrategyTest {
 
@@ -122,8 +126,51 @@ class MultiPatternLayoutStrategyTest {
         assertNoClosePairs(result.map { it.position }, 100f)
     }
 
+    @Test
+    fun `index placement fallback returns preferred when no nearby slot exists`() {
+        val preferred = WorldPoint(0f, 0f)
+        val occupied = blockedSearchPoints(preferred)
+
+        val method = MultiPatternLayoutStrategy::class.java.getDeclaredMethod(
+            "findNextFreePlacement",
+            Int::class.javaPrimitiveType,
+            List::class.java,
+            kotlin.jvm.functions.Function1::class.java,
+        )
+        method.isAccessible = true
+
+        val placement = method.invoke(
+            strategy,
+            42,
+            occupied,
+            { _: Int -> preferred },
+        )
+        val placementClass = placement.javaClass
+        val positionField = placementClass.getDeclaredField("position").apply { isAccessible = true }
+        val nextIndexField = placementClass.getDeclaredField("nextIndex").apply { isAccessible = true }
+
+        assertThat(positionField.get(placement)).isEqualTo(preferred)
+        assertThat(nextIndexField.get(placement) as Int).isEqualTo(42 + 25_000 + 1)
+    }
+
     private fun sampleApps(count: Int): List<InstalledApp> = List(count) { index ->
         InstalledApp(packageName = "pkg.$index", label = "App $index")
+    }
+
+    private fun blockedSearchPoints(preferred: WorldPoint): List<WorldPoint> {
+        val occupied = mutableListOf(preferred)
+        for (ring in 1..12) {
+            val radius = ring * 136f
+            val pointsOnRing = max(8, ring * 8)
+            for (pointIndex in 0 until pointsOnRing) {
+                val angle = (2.0 * PI * pointIndex) / pointsOnRing
+                occupied += WorldPoint(
+                    x = preferred.x + (cos(angle) * radius).toFloat(),
+                    y = preferred.y + (sin(angle) * radius).toFloat(),
+                )
+            }
+        }
+        return occupied
     }
 
     private fun assertNoClosePairs(points: List<WorldPoint>, minDistance: Float) {

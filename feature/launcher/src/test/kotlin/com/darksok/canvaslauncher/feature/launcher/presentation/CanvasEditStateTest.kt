@@ -80,6 +80,27 @@ class CanvasEditStateTest {
     }
 
     @Test
+    fun `inline editor supports new sticky and frame targets`() {
+        val stickyTarget = CanvasInlineEditorTarget.NewSticky(WorldPoint(12f, 14f))
+        val frameTarget = CanvasInlineEditorTarget.NewFrame(WorldPoint(-8f, 5f))
+
+        assertThat((stickyTarget as CanvasInlineEditorTarget.NewSticky).worldPoint).isEqualTo(WorldPoint(12f, 14f))
+        assertThat((frameTarget as CanvasInlineEditorTarget.NewFrame).worldPoint).isEqualTo(WorldPoint(-8f, 5f))
+    }
+
+    @Test
+    fun `frame draft keeps center and minimum dimensions for downstream resize flows`() {
+        val draft = CanvasFrameDraftUiState(
+            startCorner = WorldPoint(-10f, -10f),
+            endCorner = WorldPoint(20f, 30f),
+            colorArgb = CanvasEditDefaults.DEFAULT_COLOR,
+        )
+
+        assertThat(draft.startCorner).isEqualTo(WorldPoint(-10f, -10f))
+        assertThat(draft.endCorner).isEqualTo(WorldPoint(20f, 30f))
+    }
+
+    @Test
     fun `default widget ui state color matches default green`() {
         val widget = CanvasWidgetUiState(
             id = "widget",

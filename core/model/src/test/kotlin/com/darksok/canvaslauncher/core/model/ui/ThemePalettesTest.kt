@@ -64,4 +64,24 @@ class ThemePalettesTest {
             "ROSE_DAWN",
         ).inOrder()
     }
+
+    @Test
+    fun `dark palette entries mirror values order`() {
+        assertThat(DarkThemePalette.entries.map { it.name }).containsExactly(
+            "MIDNIGHT_BLUE",
+            "DEEP_OCEAN",
+            "FOREST_NIGHT",
+            "CHARCOAL_AMBER",
+        ).inOrder()
+    }
+
+    @Test
+    fun `light palette entries mirror values order`() {
+        assertThat(LightThemePalette.entries.map { it.name }).containsExactly(
+            "SKY_BREEZE",
+            "MINT_GARDEN",
+            "SUNSET_GLOW",
+            "ROSE_DAWN",
+        ).inOrder()
+    }
 }

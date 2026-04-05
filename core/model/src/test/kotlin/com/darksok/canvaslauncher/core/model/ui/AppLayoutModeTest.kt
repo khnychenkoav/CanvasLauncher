@@ -46,4 +46,16 @@ class AppLayoutModeTest {
             "ICON_COLOR",
         ).inOrder()
     }
+
+    @Test
+    fun `layout mode entries mirror values order`() {
+        assertThat(AppLayoutMode.entries.map { it.name }).containsExactly(
+            "SPIRAL",
+            "RECTANGLE",
+            "CIRCLE",
+            "OVAL",
+            "SMART_AUTO",
+            "ICON_COLOR",
+        ).inOrder()
+    }
 }
