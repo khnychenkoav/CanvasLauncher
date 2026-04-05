@@ -328,6 +328,13 @@ fun CanvasEditLayer(
                 val visibleWidthPx = visibleRight - visibleLeft
                 val visibleHeightPx = visibleBottom - visibleTop
                 if (visibleWidthPx > 0f && visibleHeightPx > 0f) {
+                    val borderHitPx = frameBorderHitWidthPx
+                        .coerceAtLeast(1f)
+                        .coerceAtMost(min(visibleWidthPx, visibleHeightPx))
+                    val topBottomHeightPx = borderHitPx
+                    val leftRightWidthPx = borderHitPx
+                    val middleHeightPx = (visibleHeightPx - topBottomHeightPx * 2f).coerceAtLeast(0f)
+
                     Box(
                         modifier = Modifier
                             .offset {
@@ -338,57 +345,69 @@ fun CanvasEditLayer(
                             }
                             .requiredSize(
                                 width = with(density) { visibleWidthPx.toDp() },
-                                height = with(density) { visibleHeightPx.toDp() },
+                                height = with(density) { topBottomHeightPx.toDp() },
                             )
-                            .pointerInput(
-                                frame.id,
-                                frameLeft,
-                                frameTop,
-                                frameRight,
-                                frameBottom,
-                                visibleLeft,
-                                visibleTop,
-                                frameBorderHitWidthPx,
-                            ) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val pointerId = down.id
-                                    var stillTap = true
-
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                                        if (!change.pressed) {
-                                            if (stillTap) {
-                                                val tapX = visibleLeft + change.position.x
-                                                val tapY = visibleTop + change.position.y
-                                                if (
-                                                    isOnFrameBorderAbsolute(
-                                                        tapX = tapX,
-                                                        tapY = tapY,
-                                                        frameLeft = frameLeft,
-                                                        frameTop = frameTop,
-                                                        frameRight = frameRight,
-                                                        frameBottom = frameBottom,
-                                                        hitWidthPx = frameBorderHitWidthPx,
-                                                    )
-                                                ) {
-                                                    onFrameBorderTap(frame.id)
-                                                }
-                                            }
-                                            break
-                                        }
-                                        if (
-                                            (change.position - down.position).getDistance() > viewConfiguration.touchSlop ||
-                                            event.changes.count { pointer -> pointer.pressed } > 1
-                                        ) {
-                                            stillTap = false
-                                        }
-                                    }
-                                }
+                            .pointerInput(frame.id, visibleWidthPx, topBottomHeightPx) {
+                                detectTapGestures(onTap = { onFrameBorderTap(frame.id) })
                             }
                             .zIndex(0.31f),
                     )
+
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                IntOffset(
+                                    x = visibleLeft.roundToInt(),
+                                    y = (visibleBottom - topBottomHeightPx).roundToInt(),
+                                )
+                            }
+                            .requiredSize(
+                                width = with(density) { visibleWidthPx.toDp() },
+                                height = with(density) { topBottomHeightPx.toDp() },
+                            )
+                            .pointerInput(frame.id, visibleWidthPx, topBottomHeightPx, visibleBottom) {
+                                detectTapGestures(onTap = { onFrameBorderTap(frame.id) })
+                            }
+                            .zIndex(0.31f),
+                    )
+
+                    if (middleHeightPx > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .offset {
+                                    IntOffset(
+                                        x = visibleLeft.roundToInt(),
+                                        y = (visibleTop + topBottomHeightPx).roundToInt(),
+                                    )
+                                }
+                                .requiredSize(
+                                    width = with(density) { leftRightWidthPx.toDp() },
+                                    height = with(density) { middleHeightPx.toDp() },
+                                )
+                                .pointerInput(frame.id, leftRightWidthPx, middleHeightPx) {
+                                    detectTapGestures(onTap = { onFrameBorderTap(frame.id) })
+                                }
+                                .zIndex(0.31f),
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .offset {
+                                    IntOffset(
+                                        x = (visibleRight - leftRightWidthPx).roundToInt(),
+                                        y = (visibleTop + topBottomHeightPx).roundToInt(),
+                                    )
+                                }
+                                .requiredSize(
+                                    width = with(density) { leftRightWidthPx.toDp() },
+                                    height = with(density) { middleHeightPx.toDp() },
+                                )
+                                .pointerInput(frame.id, leftRightWidthPx, middleHeightPx, visibleRight) {
+                                    detectTapGestures(onTap = { onFrameBorderTap(frame.id) })
+                                }
+                                .zIndex(0.31f),
+                        )
+                    }
                 }
             }
 
@@ -1776,22 +1795,6 @@ private fun Modifier.singlePointerResizeDrag(
             }
         }
     }
-}
-
-private fun isOnFrameBorderAbsolute(
-    tapX: Float,
-    tapY: Float,
-    frameLeft: Float,
-    frameTop: Float,
-    frameRight: Float,
-    frameBottom: Float,
-    hitWidthPx: Float,
-): Boolean {
-    if (tapX < frameLeft || tapX > frameRight || tapY < frameTop || tapY > frameBottom) return false
-    return abs(tapX - frameLeft) <= hitWidthPx ||
-        abs(frameRight - tapX) <= hitWidthPx ||
-        abs(tapY - frameTop) <= hitWidthPx ||
-        abs(frameBottom - tapY) <= hitWidthPx
 }
 
 private fun frameHandlePlacements(

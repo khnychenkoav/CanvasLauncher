@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -341,10 +342,11 @@ private fun CanvasAppNode(
     val viewConfiguration = LocalViewConfiguration.current
     val touchSlopPx = viewConfiguration.touchSlop
     val longPressTimeoutMillis = viewConfiguration.longPressTimeoutMillis
+    val latestPosition = rememberUpdatedState(position)
     val isInteractive = searchVisualState != CanvasSearchVisualState.Dimmed
     val interactionModifier = if (isInteractive) {
         Modifier
-            .pointerInput(packageName, touchSlopPx, longPressTimeoutMillis, dragEnabled, position) {
+            .pointerInput(packageName, touchSlopPx, longPressTimeoutMillis, dragEnabled) {
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
                     var trackedId = firstDown.id
@@ -377,7 +379,6 @@ private fun CanvasAppNode(
                             dragEnabled &&
                             maxPointerCount == 1 &&
                             !isTapSuppressed(eventUptime) &&
-                            movedDistancePx <= touchSlopPx &&
                             tracked.uptimeMillis - firstDown.uptimeMillis >= longPressTimeoutMillis
                         ) {
                             longPressDragAttempted = true
@@ -403,9 +404,10 @@ private fun CanvasAppNode(
 
                         if (dragStarted && tracked.pressed) {
                             if (delta != Offset.Zero) {
+                                val iconPosition = latestPosition.value
                                 val pointerScreen = Offset(
-                                    x = position.x.toFloat() + tracked.position.x,
-                                    y = position.y.toFloat() + tracked.position.y,
+                                    x = iconPosition.x.toFloat() + tracked.position.x,
+                                    y = iconPosition.y.toFloat() + tracked.position.y,
                                 )
                                 val autoPanDelta = edgeAutoPanDelta(
                                     pointerScreen = pointerScreen,
