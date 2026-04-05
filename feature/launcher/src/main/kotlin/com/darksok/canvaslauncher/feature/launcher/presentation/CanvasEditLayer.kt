@@ -350,25 +350,42 @@ fun CanvasEditLayer(
                                 visibleTop,
                                 frameBorderHitWidthPx,
                             ) {
-                                detectTapGestures(
-                                    onTap = { tapOffset ->
-                                        val tapX = visibleLeft + tapOffset.x
-                                        val tapY = visibleTop + tapOffset.y
-                                        if (
-                                            isOnFrameBorderAbsolute(
-                                                tapX = tapX,
-                                                tapY = tapY,
-                                                frameLeft = frameLeft,
-                                                frameTop = frameTop,
-                                                frameRight = frameRight,
-                                                frameBottom = frameBottom,
-                                                hitWidthPx = frameBorderHitWidthPx,
-                                            )
-                                        ) {
-                                            onFrameBorderTap(frame.id)
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val pointerId = down.id
+                                    var stillTap = true
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                        if (!change.pressed) {
+                                            if (stillTap) {
+                                                val tapX = visibleLeft + change.position.x
+                                                val tapY = visibleTop + change.position.y
+                                                if (
+                                                    isOnFrameBorderAbsolute(
+                                                        tapX = tapX,
+                                                        tapY = tapY,
+                                                        frameLeft = frameLeft,
+                                                        frameTop = frameTop,
+                                                        frameRight = frameRight,
+                                                        frameBottom = frameBottom,
+                                                        hitWidthPx = frameBorderHitWidthPx,
+                                                    )
+                                                ) {
+                                                    onFrameBorderTap(frame.id)
+                                                }
+                                            }
+                                            break
                                         }
-                                    },
-                                )
+                                        if (
+                                            (change.position - down.position).getDistance() > viewConfiguration.touchSlop ||
+                                            event.changes.count { pointer -> pointer.pressed } > 1
+                                        ) {
+                                            stillTap = false
+                                        }
+                                    }
+                                }
                             }
                             .zIndex(0.31f),
                     )
