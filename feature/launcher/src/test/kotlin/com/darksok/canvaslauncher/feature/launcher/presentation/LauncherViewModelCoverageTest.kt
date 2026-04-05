@@ -152,9 +152,10 @@ class LauncherViewModelCoverageTest {
         viewModel.onWidgetCatalogItemSelected(CanvasWidgetType.ClockAnalog)
         viewModel.onWidgetCatalogItemSelected(CanvasWidgetType.Weather)
         viewModel.onWidgetCatalogItemSelected(CanvasWidgetType.Notifications)
+        viewModel.onWidgetCatalogItemSelected(CanvasWidgetType.Calendar)
         advanceUntilIdle()
 
-        assertThat(viewModel.uiState.value.widgets).hasSize(4)
+        assertThat(viewModel.uiState.value.widgets).hasSize(5)
         val firstWidgetId = viewModel.uiState.value.widgets.first().id
         viewModel.onWidgetTap(firstWidgetId)
         viewModel.onWidgetResizeStart(CanvasFrameResizeHandle.BottomRight)
@@ -176,7 +177,7 @@ class LauncherViewModelCoverageTest {
         viewModel.onWidgetTap(firstWidgetId)
         viewModel.onWidgetDeleteSelected()
         advanceUntilIdle()
-        assertThat(viewModel.uiState.value.widgets).hasSize(3)
+        assertThat(viewModel.uiState.value.widgets).hasSize(4)
         uiCollector.cancel()
     }
 

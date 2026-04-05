@@ -2,7 +2,8 @@
     <string name="error_launch_unavailable">Unable to launch this app.</string>
     <string name="search_placeholder">Find app on canvas</string>
     <string name="search_launch_top_match">Launch app \"%1$s\"</string>
-    <string name="search_call_contact">Call \"%1$s\"</string>
+    <string name="search_call_button_label">Call</string>
+    <string name="search_call_contact">%1$s \"%2$s\"</string>
     <string name="apps_list_title">App list</string>
     <string name="apps_list_count">%1$d apps</string>
     <string name="apps_list_close">Close</string>
@@ -38,6 +39,8 @@
     <string name="permissions_gate_settings_button">Open app settings</string>
     <string name="permissions_contacts_title">Contacts</string>
     <string name="permissions_contacts_description">Needed to find people in search and show the quick \"Call\" action.</string>
+    <string name="permissions_calendar_title">Calendar</string>
+    <string name="permissions_calendar_description">Needed to read today\'s events for the Calendar widget.</string>
     <string name="permissions_location_title">Location</string>
     <string name="permissions_location_description">Needed to show weather for your current area in the Weather widget.</string>
     <string name="permissions_notifications_title">Notifications</string>
@@ -85,4 +88,27 @@
     <string name="widget_notifications_permission_hint">Allow notifications in system settings.</string>
     <string name="widget_notifications_empty_hint">New alerts will appear here automatically.</string>
     <string name="widget_notifications_count">%1$d active</string>
+    <string name="widget_calendar_title">Calendar</string>
+    <string name="widget_calendar_loading">Loading events</string>
+    <string name="widget_calendar_unavailable">Calendar unavailable</string>
+    <string name="widget_calendar_permission_required">Calendar access required</string>
+    <string name="widget_calendar_permission_hint">Grant calendar access in app permissions.</string>
+    <string name="widget_calendar_empty">No events for today</string>
+    <string name="widget_calendar_empty_hint">Your next events will appear here.</string>
+    <string name="widget_calendar_no_title">Untitled event</string>
+    <string name="widget_calendar_all_day">All day</string>
+    <string name="widget_calendar_time_range">%1$s - %2$s</string>
+    <string name="widget_calendar_event_compact">%1$s - %2$s</string>
+    <string name="widget_calendar_no_more_today">No more events today</string>
+    <string name="widget_calendar_more_count">%1$d more</string>
+    <string name="widget_catalog_clock_digital_title">Clock</string>
+    <string name="widget_catalog_clock_digital_subtitle">Digital, no seconds</string>
+    <string name="widget_catalog_clock_analog_title">Analog clock</string>
+    <string name="widget_catalog_clock_analog_subtitle">Classic dial with hands</string>
+    <string name="widget_catalog_weather_title">Weather</string>
+    <string name="widget_catalog_weather_subtitle">Compact weather card</string>
+    <string name="widget_catalog_notifications_title">Notifications</string>
+    <string name="widget_catalog_notifications_subtitle">System alert status</string>
+    <string name="widget_catalog_calendar_title">Calendar</string>
+    <string name="widget_catalog_calendar_subtitle">Today\'s upcoming events</string>
 </resources>

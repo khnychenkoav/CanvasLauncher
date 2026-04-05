@@ -553,6 +553,12 @@ private fun collectMissingRequiredPermissions(context: Context): List<RequiredPe
             descriptionResId = R.string.permissions_contacts_description,
         )
     }
+    if (!hasCalendarPermission(context)) {
+        missing += RequiredPermissionUiSpec(
+            titleResId = R.string.permissions_calendar_title,
+            descriptionResId = R.string.permissions_calendar_description,
+        )
+    }
     if (!hasLocationPermission(context)) {
         missing += RequiredPermissionUiSpec(
             titleResId = R.string.permissions_location_title,
@@ -578,6 +584,9 @@ private fun collectRequiredRuntimePermissionsToRequest(context: Context): Array<
     val permissions = mutableListOf<String>()
     if (!hasContactsPermission(context)) {
         permissions += Manifest.permission.READ_CONTACTS
+    }
+    if (!hasCalendarPermission(context)) {
+        permissions += Manifest.permission.READ_CALENDAR
     }
     if (!hasLocationPermission(context)) {
         permissions += Manifest.permission.ACCESS_FINE_LOCATION
@@ -606,6 +615,13 @@ private fun hasContactsPermission(context: Context): Boolean {
     return ContextCompat.checkSelfPermission(
         context,
         Manifest.permission.READ_CONTACTS,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+private fun hasCalendarPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_CALENDAR,
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 }
 

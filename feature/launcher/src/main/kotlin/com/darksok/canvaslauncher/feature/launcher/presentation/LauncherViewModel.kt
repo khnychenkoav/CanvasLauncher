@@ -2895,6 +2895,11 @@ class LauncherViewModel @Inject constructor(
                 CanvasEditDefaults.DEFAULT_NOTIFICATIONS_WIDGET_WIDTH_WORLD to
                     CanvasEditDefaults.DEFAULT_NOTIFICATIONS_WIDGET_HEIGHT_WORLD
             }
+
+            CanvasWidgetType.Calendar -> {
+                CanvasEditDefaults.DEFAULT_CALENDAR_WIDGET_WIDTH_WORLD to
+                    CanvasEditDefaults.DEFAULT_CALENDAR_WIDGET_HEIGHT_WORLD
+            }
         }
     }
 

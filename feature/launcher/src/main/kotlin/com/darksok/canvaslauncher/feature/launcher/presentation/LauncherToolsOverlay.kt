@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -189,9 +190,11 @@ fun LauncherToolsOverlay(
                         )
                     }
                     if (canCallTopContact) {
+                        val callActionLabel = stringResource(id = R.string.search_call_button_label)
                         SearchActionButton(
                             text = stringResource(
                                 id = R.string.search_call_contact,
+                                callActionLabel,
                                 toolsState.search.topContactLabel.orEmpty(),
                             ),
                             onClick = {
@@ -484,20 +487,22 @@ private fun WidgetsPanelContent(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                         tonalElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("widget_catalog_item_${item.widgetType.name}"),
                     ) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         ) {
                             Text(
-                                text = item.title,
+                                text = stringResource(id = item.titleResId),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = item.subtitle,
+                                text = stringResource(id = item.subtitleResId),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f),
                             )

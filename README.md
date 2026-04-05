@@ -37,14 +37,14 @@ Apps, notes, frames, and widgets live in one shared coordinate space you can nav
 | Metric | Current value |
 |---|---|
 | Gradle modules | 12 |
-| Automated test files | 73 |
-| Total test cases (`@Test`) | 661 |
-| Unit test cases | 645 |
+| Automated test files | 74 |
+| Total test cases (`@Test`) | 665 |
+| Unit test cases | 649 |
 | Android instrumentation test cases | 16 |
-| Aggregate instruction coverage (Jacoco) | **81.72%** |
+| Aggregate instruction coverage (Jacoco) | **81.69%** |
 | Min SDK / Target SDK | 26 / 36 |
 | App version | 1.0.0 |
-| Canvas widgets | 4 implemented types |
+| Canvas widgets | 5 implemented types |
 
 ## What Ships Today
 ### Launcher core
@@ -72,10 +72,12 @@ Canvas widgets are not a placeholder state. The following types are implemented 
 - `ClockAnalog`
 - `Weather`
 - `Notifications`
+- `Calendar` (today's events)
 
 Related platform integration is wired:
 - notification listener service for live notification feed;
 - Android 13+ notifications permission handling;
+- runtime calendar permission flow (`READ_CALENDAR`) for the Calendar widget;
 - coarse/fine location flow for weather context.
 
 ### App discovery and management
@@ -153,8 +155,8 @@ graph TD
 Coverage and test counts below are generated from the repository state after local test execution on April 5, 2026.
 
 ### Aggregate quality
-- total instruction coverage: **81.72%** (`covered=52267`, `missed=11691`);
-- total test cases: **661**;
+- total instruction coverage: **81.69%** (`covered=52964`, `missed=11871`);
+- total test cases: **665**;
 - local connected smoke run: **16/16 instrumentation tests passed** on device.
 
 ### Coverage by module (instruction)
@@ -169,9 +171,9 @@ Coverage and test counts below are generated from the repository state after loc
 | `:core:database` | 85.03% |
 | `:core:settings` | 80.78% |
 | `:feature:launcher` | 80.50% |
-| `:app` | 78.83% |
+| `:app` | 78.73% |
 | `:feature:canvas` | 76.69% |
-| `:core:packages` | 69.75% |
+| `:core:packages` | 69.59% |
 
 ## CI
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes and pull requests to `main`, using JDK 21 and Android SDK setup, with the project test/build checks.
@@ -210,7 +212,7 @@ powershell -ExecutionPolicy Bypass -File .\tmp_cov.ps1
 - [x] Smart semantic layout presets
 - [x] Icon-color clustering presets
 - [x] Editable canvas objects (brush/notes/text/frames)
-- [x] Canvas widgets (clock/weather/notifications)
+- [x] Canvas widgets (clock/weather/notifications/calendar)
 - [ ] Folders and advanced icon customization
 - [ ] Backup/export/import of canvas state
 - [ ] Macrobenchmark + startup/jank automation

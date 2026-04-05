@@ -1,16 +1,27 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
+import android.Manifest
 import android.app.Application
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
+import android.database.Cursor
+import android.database.MatrixCursor
 import android.graphics.Paint as AndroidPaint
+import android.net.Uri
+import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
+import com.darksok.canvaslauncher.feature.launcher.R
 import com.google.common.truth.Truth.assertThat
 import org.json.JSONArray
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowContentResolver
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -263,6 +274,113 @@ class CanvasEditLayerInternalsTest {
         assertThat(nearScrollEnd).isEqualTo(1L)
     }
 
+    @Test
+    fun `calendar event time formatting supports all day range and point events`() {
+        val allDayEvent = newCalendarEvent(
+            title = "All day event",
+            startTimeMs = 1_700_000_000_000L,
+            endTimeMs = 1_700_003_600_000L,
+            allDay = true,
+        )
+        val allDayFormatted = callStatic(
+            "formatCalendarEventTime",
+            arrayOf(Context::class.java, calendarEventClass),
+            appContext,
+            allDayEvent,
+        ) as String
+        assertThat(allDayFormatted).isEqualTo(
+            appContext.getString(R.string.widget_calendar_all_day),
+        )
+
+        val startMs = 1_700_000_000_000L
+        val endMs = startMs + 3_600_000L
+        val timedEvent = newCalendarEvent(
+            title = "Timed event",
+            startTimeMs = startMs,
+            endTimeMs = endMs,
+            allDay = false,
+        )
+        val timedFormatted = callStatic(
+            "formatCalendarEventTime",
+            arrayOf(Context::class.java, calendarEventClass),
+            appContext,
+            timedEvent,
+        ) as String
+        val timeFormatter = android.text.format.DateFormat.getTimeFormat(appContext)
+        val expectedRange = appContext.getString(
+            R.string.widget_calendar_time_range,
+            timeFormatter.format(java.util.Date(startMs)),
+            timeFormatter.format(java.util.Date(endMs)),
+        )
+        assertThat(timedFormatted).isEqualTo(expectedRange)
+
+        val pointEvent = newCalendarEvent(
+            title = "Point event",
+            startTimeMs = startMs,
+            endTimeMs = startMs,
+            allDay = false,
+        )
+        val pointFormatted = callStatic(
+            "formatCalendarEventTime",
+            arrayOf(Context::class.java, calendarEventClass),
+            appContext,
+            pointEvent,
+        ) as String
+        assertThat(pointFormatted).isEqualTo(timeFormatter.format(java.util.Date(startMs)))
+    }
+
+    @Test
+    fun `calendar query returns today's events with limit and field mapping`() {
+        val startOfDay = java.time.LocalDate.now()
+            .atStartOfDay(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        FakeCalendarProvider.rows = (0 until 10).map { index ->
+            val start = startOfDay + (index * 3_600_000L)
+            FakeCalendarProvider.Row(
+                title = "Event $index",
+                begin = start,
+                end = start + 1_800_000L,
+                allDay = if (index == 0) 1 else 0,
+            )
+        }
+        ShadowContentResolver.registerProviderInternal(
+            CalendarContract.AUTHORITY,
+            FakeCalendarProvider(),
+        )
+        shadowOf(appContext).grantPermissions(Manifest.permission.READ_CALENDAR)
+
+        val events = callStatic(
+            "queryTodayCalendarEvents",
+            arrayOf(Context::class.java),
+            appContext,
+        ) as List<*>
+
+        assertThat(events).hasSize(8)
+        val first = events.first()!!
+        assertThat(getString(first, "getTitle")).isEqualTo("Event 0")
+        assertThat(getBoolean(first, "getAllDay")).isTrue()
+        assertThat(getLong(first, "getStartTimeMs")).isEqualTo(startOfDay)
+    }
+
+    @Test
+    fun `calendar permission helper tracks runtime grant`() {
+        val beforeGrant = callStatic(
+            "hasCalendarPermission",
+            arrayOf(Context::class.java),
+            appContext,
+        ) as Boolean
+        assertThat(beforeGrant).isFalse()
+
+        shadowOf(appContext).grantPermissions(Manifest.permission.READ_CALENDAR)
+        val afterGrant = callStatic(
+            "hasCalendarPermission",
+            arrayOf(Context::class.java),
+            appContext,
+        ) as Boolean
+        assertThat(afterGrant).isTrue()
+    }
+
     private fun newHourlyForecast(hour: String, temp: Int): Any {
         return liveHourlyClass.getDeclaredConstructor(String::class.java, Int::class.javaPrimitiveType!!)
             .apply { isAccessible = true }
@@ -277,6 +395,22 @@ class CanvasEditLayerInternalsTest {
         ).apply {
             isAccessible = true
         }.newInstance(day, max, min)
+    }
+
+    private fun newCalendarEvent(
+        title: String,
+        startTimeMs: Long,
+        endTimeMs: Long,
+        allDay: Boolean,
+    ): Any {
+        return calendarEventClass.getDeclaredConstructor(
+            String::class.java,
+            Long::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+            Boolean::class.javaPrimitiveType!!,
+        ).apply {
+            isAccessible = true
+        }.newInstance(title, startTimeMs, endTimeMs, allDay)
     }
 
     private fun callStatic(name: String, parameterTypes: Array<Class<*>>, vararg args: Any?): Any? {
@@ -303,6 +437,79 @@ class CanvasEditLayerInternalsTest {
         return (getter.invoke(target) as Number).toInt()
     }
 
+    private fun getLong(target: Any, getterName: String): Long {
+        val getter = target.javaClass.getDeclaredMethod(getterName)
+        getter.isAccessible = true
+        return (getter.invoke(target) as Number).toLong()
+    }
+
+    private fun getBoolean(target: Any, getterName: String): Boolean {
+        val getter = target.javaClass.getDeclaredMethod(getterName)
+        getter.isAccessible = true
+        return getter.invoke(target) as Boolean
+    }
+
+    private fun getString(target: Any, getterName: String): String {
+        val getter = target.javaClass.getDeclaredMethod(getterName)
+        getter.isAccessible = true
+        return getter.invoke(target) as String
+    }
+
+    private class FakeCalendarProvider : ContentProvider() {
+        data class Row(
+            val title: String,
+            val begin: Long,
+            val end: Long,
+            val allDay: Int,
+        )
+
+        override fun onCreate(): Boolean = true
+
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?,
+        ): Cursor {
+            val columns = projection ?: arrayOf(
+                CalendarContract.Instances.BEGIN,
+                CalendarContract.Instances.END,
+                CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.ALL_DAY,
+            )
+            val cursor = MatrixCursor(columns)
+            rows.forEach { row ->
+                cursor.addRow(
+                    arrayOf(
+                        row.begin,
+                        row.end,
+                        row.title,
+                        row.allDay,
+                    ),
+                )
+            }
+            return cursor
+        }
+
+        override fun getType(uri: Uri): String? = null
+
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+
+        override fun update(
+            uri: Uri,
+            values: ContentValues?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+        ): Int = 0
+
+        companion object {
+            var rows: List<Row> = emptyList()
+        }
+    }
+
     private companion object {
         private val canvasEditLayerKtClass = Class.forName(
             "com.darksok.canvaslauncher.feature.launcher.presentation.CanvasEditLayerKt",
@@ -312,6 +519,9 @@ class CanvasEditLayerInternalsTest {
         )
         private val liveDailyClass = Class.forName(
             "com.darksok.canvaslauncher.feature.launcher.presentation.LiveDailyForecastEntry",
+        )
+        private val calendarEventClass = Class.forName(
+            "com.darksok.canvaslauncher.feature.launcher.presentation.CalendarEventEntry",
         )
     }
 }

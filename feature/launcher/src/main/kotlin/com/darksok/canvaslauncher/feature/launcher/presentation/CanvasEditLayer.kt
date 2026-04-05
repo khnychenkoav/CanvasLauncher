@@ -1,15 +1,18 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Typeface
+import android.provider.CalendarContract
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.provider.Settings
+import android.text.format.DateFormat as AndroidDateFormat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -1002,6 +1005,9 @@ private fun CanvasWidgetLayer(
     val hasNotificationsWidget = remember(widgets) {
         widgets.any { widget -> widget.type == CanvasWidgetType.Notifications }
     }
+    val hasCalendarWidget = remember(widgets) {
+        widgets.any { widget -> widget.type == CanvasWidgetType.Calendar }
+    }
     val widgetTime = rememberWidgetTime(
         enabled = hasClockWidget,
         updateEverySecond = hasAnalogWidget,
@@ -1022,6 +1028,10 @@ private fun CanvasWidgetLayer(
         enabled = hasNotificationsWidget,
     )
     val liveNotificationEntries = rememberNotificationEntries(enabled = hasNotificationsWidget)
+    val calendarSnapshot = rememberCalendarWidgetSnapshot(
+        context = context,
+        enabled = hasCalendarWidget,
+    )
 
     val weatherTitleText = stringResource(id = R.string.widget_weather_title)
     val weatherHourlyPrefix = stringResource(id = R.string.widget_weather_hourly_prefix)
@@ -1030,6 +1040,7 @@ private fun CanvasWidgetLayer(
     val notificationAccessRequiredText = stringResource(id = R.string.widget_notifications_access_required)
     val notificationPermissionRequiredText = stringResource(id = R.string.widget_notifications_permission_required)
     val notificationEmptyText = stringResource(id = R.string.widget_notifications_empty)
+    val calendarTitleText = stringResource(id = R.string.widget_calendar_title)
     val notificationSubtitle = when {
         !notificationAccessEnabled -> stringResource(id = R.string.widget_notifications_access_hint)
         !notificationsEnabled -> stringResource(id = R.string.widget_notifications_permission_hint)
@@ -1495,6 +1506,82 @@ private fun CanvasWidgetLayer(
                             )
                         }
                     }
+
+                    CanvasWidgetType.Calendar -> {
+                        val horizontalPadding = max(WIDGET_INFO_HORIZONTAL_PADDING_PX, layout.widthPx * 0.08f)
+                        val titleSize = (layout.heightPx * 0.14f).coerceAtLeast(11f)
+                        val bodySize = (layout.heightPx * 0.22f)
+                            .coerceAtLeast(13f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_BODY_MAX_HEIGHT_FRACTION)
+                        val subtitleSize = (layout.heightPx * 0.11f)
+                            .coerceAtLeast(10f)
+                            .coerceAtMost(layout.heightPx * WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION)
+                        widgetTitlePaint.textSize = titleSize
+                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetBodyPaint.textSize = bodySize
+                        widgetBodyPaint.color = if (calendarSnapshot.isResolved) {
+                            widgetAccentColor.toArgb()
+                        } else {
+                            widgetSecondaryTextColor.toArgb()
+                        }
+                        widgetSubtitlePaint.textSize = subtitleSize
+                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+
+                        val titleBaseline = layout.topPx + layout.heightPx * 0.23f
+                        val bodyBaseline = layout.topPx + layout.heightPx * 0.52f
+                        val subtitleBaseline = layout.topPx + layout.heightPx * 0.74f
+                        val footerBaseline = layout.topPx + layout.heightPx * 0.90f
+                        val left = layout.leftPx + horizontalPadding
+                        val availableWidth = (layout.widthPx - horizontalPadding * 2f).coerceAtLeast(24f)
+
+                        val titleLine = ellipsizeToWidth(
+                            text = calendarTitleText,
+                            paint = widgetTitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val primaryLine = ellipsizeToWidth(
+                            text = calendarSnapshot.primaryLine,
+                            paint = widgetBodyPaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val secondaryLine = ellipsizeToWidth(
+                            text = calendarSnapshot.secondaryLine,
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+                        val footerLine = ellipsizeToWidth(
+                            text = calendarSnapshot.footerLine,
+                            paint = widgetSubtitlePaint,
+                            maxWidthPx = availableWidth,
+                        )
+
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawText(
+                                titleLine,
+                                left,
+                                titleBaseline,
+                                widgetTitlePaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                primaryLine,
+                                left,
+                                bodyBaseline,
+                                widgetBodyPaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                secondaryLine,
+                                left,
+                                subtitleBaseline,
+                                widgetSubtitlePaint,
+                            )
+                            canvas.nativeCanvas.drawText(
+                                footerLine,
+                                left,
+                                footerBaseline,
+                                widgetSubtitlePaint,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1718,6 +1805,171 @@ private fun notificationTickerRefreshDelayMs(nowMs: Long): Long {
         (WIDGET_NOTIFICATION_STATIONARY_MS - phaseMs).coerceAtLeast(1L)
     } else {
         min(WIDGET_NOTIFICATION_TICKER_FRAME_MS, (cycleDurationMs - phaseMs).coerceAtLeast(1L))
+    }
+}
+
+private data class CalendarWidgetSnapshot(
+    val primaryLine: String,
+    val secondaryLine: String,
+    val footerLine: String,
+    val isResolved: Boolean,
+)
+
+private data class CalendarEventEntry(
+    val title: String,
+    val startTimeMs: Long,
+    val endTimeMs: Long,
+    val allDay: Boolean,
+)
+
+@Composable
+private fun rememberCalendarWidgetSnapshot(
+    context: Context,
+    enabled: Boolean,
+): CalendarWidgetSnapshot {
+    val appContext = remember(context) { context.applicationContext }
+    val loadingText = stringResource(id = R.string.widget_calendar_loading)
+    val calendarUnavailableText = stringResource(id = R.string.widget_calendar_unavailable)
+    val grantAccessText = stringResource(id = R.string.widget_calendar_permission_hint)
+    val noMoreText = stringResource(id = R.string.widget_calendar_no_more_today)
+    val snapshot by produceState(
+        initialValue = CalendarWidgetSnapshot(
+            primaryLine = loadingText,
+            secondaryLine = grantAccessText,
+            footerLine = noMoreText,
+            isResolved = false,
+        ),
+        key1 = appContext,
+        key2 = enabled,
+    ) {
+        if (!enabled) {
+            value = CalendarWidgetSnapshot(
+                primaryLine = loadingText,
+                secondaryLine = grantAccessText,
+                footerLine = noMoreText,
+                isResolved = false,
+            )
+            return@produceState
+        }
+        while (true) {
+            value = runCatching {
+                loadCalendarSnapshot(appContext)
+            }.getOrElse {
+                CalendarWidgetSnapshot(
+                    primaryLine = calendarUnavailableText,
+                    secondaryLine = grantAccessText,
+                    footerLine = noMoreText,
+                    isResolved = false,
+                )
+            }
+            delay(WIDGET_CALENDAR_REFRESH_MS)
+        }
+    }
+    return snapshot
+}
+
+private suspend fun loadCalendarSnapshot(context: Context): CalendarWidgetSnapshot {
+    if (!hasCalendarPermission(context)) {
+        return CalendarWidgetSnapshot(
+            primaryLine = context.getString(R.string.widget_calendar_permission_required),
+            secondaryLine = context.getString(R.string.widget_calendar_permission_hint),
+            footerLine = context.getString(R.string.widget_calendar_no_more_today),
+            isResolved = false,
+        )
+    }
+    val events = withContext(Dispatchers.IO) {
+        queryTodayCalendarEvents(context)
+    }
+    if (events.isEmpty()) {
+        return CalendarWidgetSnapshot(
+            primaryLine = context.getString(R.string.widget_calendar_empty),
+            secondaryLine = context.getString(R.string.widget_calendar_empty_hint),
+            footerLine = context.getString(R.string.widget_calendar_no_more_today),
+            isResolved = true,
+        )
+    }
+    val untitledEvent = context.getString(R.string.widget_calendar_no_title)
+    val firstEvent = events.first()
+    val firstTitle = firstEvent.title.ifBlank { untitledEvent }
+    val firstTime = formatCalendarEventTime(context, firstEvent)
+    val footerLine = buildString {
+        val secondEvent = events.getOrNull(1)
+        if (secondEvent != null) {
+            append(
+                context.getString(
+                    R.string.widget_calendar_event_compact,
+                    formatCalendarEventTime(context, secondEvent),
+                    secondEvent.title.ifBlank { untitledEvent },
+                ),
+            )
+        } else {
+            append(context.getString(R.string.widget_calendar_no_more_today))
+        }
+        val hiddenEventsCount = (events.size - 2).coerceAtLeast(0)
+        if (hiddenEventsCount > 0) {
+            append(" | ")
+            append(context.getString(R.string.widget_calendar_more_count, hiddenEventsCount))
+        }
+    }
+    return CalendarWidgetSnapshot(
+        primaryLine = firstTitle,
+        secondaryLine = firstTime,
+        footerLine = footerLine,
+        isResolved = true,
+    )
+}
+
+@Suppress("MissingPermission")
+private fun queryTodayCalendarEvents(context: Context): List<CalendarEventEntry> {
+    val zoneId = java.time.ZoneId.systemDefault()
+    val today = LocalDate.now(zoneId)
+    val startOfDay = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+    val endOfDay = today.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+    val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+    ContentUris.appendId(uriBuilder, startOfDay)
+    ContentUris.appendId(uriBuilder, endOfDay)
+    val projection = arrayOf(
+        CalendarContract.Instances.BEGIN,
+        CalendarContract.Instances.END,
+        CalendarContract.Instances.TITLE,
+        CalendarContract.Instances.ALL_DAY,
+    )
+    val events = mutableListOf<CalendarEventEntry>()
+    context.contentResolver.query(
+        uriBuilder.build(),
+        projection,
+        "${CalendarContract.Instances.VISIBLE} = 1",
+        null,
+        "${CalendarContract.Instances.BEGIN} ASC",
+    )?.use { cursor ->
+        while (cursor.moveToNext() && events.size < WIDGET_CALENDAR_MAX_EVENTS) {
+            val startTimeMs = cursor.getLong(0)
+            val endTimeMs = cursor.getLong(1)
+            val title = cursor.getString(2).orEmpty()
+            val allDay = cursor.getInt(3) == 1
+            events += CalendarEventEntry(
+                title = title,
+                startTimeMs = startTimeMs,
+                endTimeMs = endTimeMs,
+                allDay = allDay,
+            )
+        }
+    }
+    return events
+}
+
+private fun formatCalendarEventTime(
+    context: Context,
+    event: CalendarEventEntry,
+): String {
+    if (event.allDay) return context.getString(R.string.widget_calendar_all_day)
+    val formatter = AndroidDateFormat.getTimeFormat(context)
+    val start = formatter.format(java.util.Date(event.startTimeMs))
+    val end = formatter.format(java.util.Date(event.endTimeMs))
+    return if (event.endTimeMs > event.startTimeMs) {
+        context.getString(R.string.widget_calendar_time_range, start, end)
+    } else {
+        start
     }
 }
 
@@ -2062,6 +2314,13 @@ private fun FontFamily?.toAndroidTypeface(): Typeface {
         FontFamily.Cursive -> Typeface.create("cursive", Typeface.NORMAL)
         else -> Typeface.DEFAULT
     }
+}
+
+private fun hasCalendarPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_CALENDAR,
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun hasLocationPermission(context: Context): Boolean {
@@ -3176,6 +3435,8 @@ private const val WIDGET_ANALOG_CENTER_DOT_FACTOR = 0.065f
 private const val WIDGET_ANALOG_FACE_FILL_ALPHA = 0.14f
 private const val WIDGET_WEATHER_REFRESH_MS = 15 * 60 * 1_000L
 private const val WIDGET_WEATHER_NETWORK_TIMEOUT_MS = 4_500
+private const val WIDGET_CALENDAR_REFRESH_MS = 5 * 60 * 1_000L
+private const val WIDGET_CALENDAR_MAX_EVENTS = 8
 private const val WIDGET_NOTIFICATIONS_POLL_MS = 3_000L
 private const val WIDGET_NOTIFICATION_STATIONARY_MS = 5_000L
 private const val WIDGET_NOTIFICATION_SCROLL_MS = 850L

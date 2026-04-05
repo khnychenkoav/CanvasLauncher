@@ -61,6 +61,7 @@ enum class CanvasWidgetType {
     ClockAnalog,
     Weather,
     Notifications,
+    Calendar,
 }
 
 data class CanvasWidgetUiState(
@@ -175,6 +176,8 @@ object CanvasEditDefaults {
     const val DEFAULT_WEATHER_WIDGET_HEIGHT_WORLD: Float = 164f
     const val DEFAULT_NOTIFICATIONS_WIDGET_WIDTH_WORLD: Float = 380f
     const val DEFAULT_NOTIFICATIONS_WIDGET_HEIGHT_WORLD: Float = 164f
+    const val DEFAULT_CALENDAR_WIDGET_WIDTH_WORLD: Float = 400f
+    const val DEFAULT_CALENDAR_WIDGET_HEIGHT_WORLD: Float = 172f
     const val WIDGET_MIN_WIDTH_WORLD: Float = 180f
     const val WIDGET_MIN_HEIGHT_WORLD: Float = 88f
     val PALETTE: List<Int> = listOf(

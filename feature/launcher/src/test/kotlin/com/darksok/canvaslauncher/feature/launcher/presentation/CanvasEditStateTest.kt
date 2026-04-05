@@ -114,7 +114,7 @@ class CanvasEditStateTest {
     }
 
     @Test
-    fun `widget catalog defaults expose four items in expected order`() {
+    fun `widget catalog defaults expose five items in expected order`() {
         val items = WidgetsUiState().items.map { it.widgetType }
 
         assertThat(items).containsExactly(
@@ -122,6 +122,7 @@ class CanvasEditStateTest {
             CanvasWidgetType.ClockAnalog,
             CanvasWidgetType.Weather,
             CanvasWidgetType.Notifications,
+            CanvasWidgetType.Calendar,
         ).inOrder()
     }
 

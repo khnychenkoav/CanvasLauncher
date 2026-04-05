@@ -2,7 +2,8 @@
     <string name="error_launch_unavailable">No se pudo iniciar esta app.</string>
     <string name="search_placeholder">Buscar app en el lienzo</string>
     <string name="search_launch_top_match">Abrir app "%1$s"</string>
-    <string name="search_call_contact">Llamar a "%1$s"</string>
+    <string name="search_call_button_label">Llamar</string>
+    <string name="search_call_contact">%1$s a "%2$s"</string>
     <string name="apps_list_title">Lista de apps</string>
     <string name="apps_list_count">%1$d apps</string>
     <string name="apps_list_close">Cerrar</string>
@@ -38,6 +39,8 @@
     <string name="permissions_gate_settings_button">Abrir ajustes de la app</string>
     <string name="permissions_contacts_title">Contactos</string>
     <string name="permissions_contacts_description">Necesario para buscar personas y mostrar la acción rápida "Llamar".</string>
+    <string name="permissions_calendar_title">Calendario</string>
+    <string name="permissions_calendar_description">Necesario para leer los eventos de hoy en el widget de calendario.</string>
     <string name="permissions_location_title">Ubicación</string>
     <string name="permissions_location_description">Necesario para mostrar el clima de tu zona en el widget del clima.</string>
     <string name="permissions_notifications_title">Notificaciones</string>
@@ -85,4 +88,27 @@
     <string name="widget_notifications_permission_hint">Permite notificaciones en ajustes del sistema.</string>
     <string name="widget_notifications_empty_hint">Las nuevas alertas aparecerán aquí automáticamente.</string>
     <string name="widget_notifications_count">Activas: %1$d</string>
+    <string name="widget_calendar_title">Calendario</string>
+    <string name="widget_calendar_loading">Cargando eventos</string>
+    <string name="widget_calendar_unavailable">Calendario no disponible</string>
+    <string name="widget_calendar_permission_required">Se requiere acceso al calendario</string>
+    <string name="widget_calendar_permission_hint">Concede acceso al calendario en los permisos de la app.</string>
+    <string name="widget_calendar_empty">No hay eventos para hoy</string>
+    <string name="widget_calendar_empty_hint">Tus próximos eventos aparecerán aquí.</string>
+    <string name="widget_calendar_no_title">Evento sin título</string>
+    <string name="widget_calendar_all_day">Todo el día</string>
+    <string name="widget_calendar_time_range">%1$s - %2$s</string>
+    <string name="widget_calendar_event_compact">%1$s - %2$s</string>
+    <string name="widget_calendar_no_more_today">No hay más eventos hoy</string>
+    <string name="widget_calendar_more_count">%1$d más</string>
+    <string name="widget_catalog_clock_digital_title">Reloj</string>
+    <string name="widget_catalog_clock_digital_subtitle">Digital, sin segundos</string>
+    <string name="widget_catalog_clock_analog_title">Reloj analógico</string>
+    <string name="widget_catalog_clock_analog_subtitle">Esfera clásica con manecillas</string>
+    <string name="widget_catalog_weather_title">Clima</string>
+    <string name="widget_catalog_weather_subtitle">Tarjeta de clima compacta</string>
+    <string name="widget_catalog_notifications_title">Notificaciones</string>
+    <string name="widget_catalog_notifications_subtitle">Estado de alertas del sistema</string>
+    <string name="widget_catalog_calendar_title">Calendario</string>
+    <string name="widget_catalog_calendar_subtitle">Próximos eventos de hoy</string>
 </resources>

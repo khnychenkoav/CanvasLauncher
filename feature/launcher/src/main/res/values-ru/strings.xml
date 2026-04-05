@@ -2,7 +2,8 @@
     <string name="error_launch_unavailable">Не удалось открыть это приложение.</string>
     <string name="search_placeholder">Найти приложение на холсте</string>
     <string name="search_launch_top_match">Открыть приложение "%1$s"</string>
-    <string name="search_call_contact">Позвонить "%1$s"</string>
+    <string name="search_call_button_label">Позвонить</string>
+    <string name="search_call_contact">%1$s "%2$s"</string>
     <string name="apps_list_title">Список приложений</string>
     <string name="apps_list_count">%1$d приложений</string>
     <string name="apps_list_close">Закрыть</string>
@@ -38,6 +39,8 @@
     <string name="permissions_gate_settings_button">Открыть настройки приложения</string>
     <string name="permissions_contacts_title">Контакты</string>
     <string name="permissions_contacts_description">Нужно для поиска людей и быстрого действия «Позвонить».</string>
+    <string name="permissions_calendar_title">Календарь</string>
+    <string name="permissions_calendar_description">Нужно для чтения событий на сегодня в виджете календаря.</string>
     <string name="permissions_location_title">Геолокация</string>
     <string name="permissions_location_description">Нужно для отображения погоды по вашему местоположению в виджете погоды.</string>
     <string name="permissions_notifications_title">Уведомления</string>
@@ -85,4 +88,27 @@
     <string name="widget_notifications_permission_hint">Разрешите уведомления в системных настройках.</string>
     <string name="widget_notifications_empty_hint">Новые уведомления будут появляться здесь автоматически.</string>
     <string name="widget_notifications_count">Активно: %1$d</string>
+    <string name="widget_calendar_title">Календарь</string>
+    <string name="widget_calendar_loading">Загружаем события</string>
+    <string name="widget_calendar_unavailable">Календарь недоступен</string>
+    <string name="widget_calendar_permission_required">Нужен доступ к календарю</string>
+    <string name="widget_calendar_permission_hint">Разрешите доступ к календарю в настройках приложения.</string>
+    <string name="widget_calendar_empty">На сегодня событий нет</string>
+    <string name="widget_calendar_empty_hint">Следующие события появятся здесь.</string>
+    <string name="widget_calendar_no_title">Событие без названия</string>
+    <string name="widget_calendar_all_day">Весь день</string>
+    <string name="widget_calendar_time_range">%1$s - %2$s</string>
+    <string name="widget_calendar_event_compact">%1$s - %2$s</string>
+    <string name="widget_calendar_no_more_today">На сегодня больше нет событий</string>
+    <string name="widget_calendar_more_count">Еще %1$d</string>
+    <string name="widget_catalog_clock_digital_title">Часы</string>
+    <string name="widget_catalog_clock_digital_subtitle">Цифровые, без секунд</string>
+    <string name="widget_catalog_clock_analog_title">Аналоговые часы</string>
+    <string name="widget_catalog_clock_analog_subtitle">Классический циферблат со стрелками</string>
+    <string name="widget_catalog_weather_title">Погода</string>
+    <string name="widget_catalog_weather_subtitle">Компактная карточка погоды</string>
+    <string name="widget_catalog_notifications_title">Уведомления</string>
+    <string name="widget_catalog_notifications_subtitle">Статус системных уведомлений</string>
+    <string name="widget_catalog_calendar_title">Календарь</string>
+    <string name="widget_catalog_calendar_subtitle">События на сегодня</string>
 </resources>

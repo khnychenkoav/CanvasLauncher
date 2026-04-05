@@ -33,10 +33,12 @@ class LauncherRouteInternalsTest {
 
         val runtimeBefore = invokeStringArray("collectRequiredRuntimePermissionsToRequest", context)
         assertThat(runtimeBefore.toList()).contains(Manifest.permission.READ_CONTACTS)
+        assertThat(runtimeBefore.toList()).contains(Manifest.permission.READ_CALENDAR)
         assertThat(runtimeBefore.toList()).contains(Manifest.permission.ACCESS_FINE_LOCATION)
 
         shadowOf(app).grantPermissions(
             Manifest.permission.READ_CONTACTS,
+            Manifest.permission.READ_CALENDAR,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS,

@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -35,6 +36,8 @@ import com.darksok.canvaslauncher.feature.launcher.presentation.LauncherToolId
 import com.darksok.canvaslauncher.feature.launcher.presentation.LauncherToolsOverlay
 import com.darksok.canvaslauncher.feature.launcher.presentation.SearchUiState
 import com.darksok.canvaslauncher.feature.launcher.presentation.ToolsUiState
+import com.darksok.canvaslauncher.feature.launcher.presentation.WidgetCatalogItemUiState
+import com.darksok.canvaslauncher.feature.launcher.presentation.WidgetsUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -116,7 +119,8 @@ class LauncherComposeCoverageAndroidTest {
     @Test
     fun launcherToolsOverlaySearchActionsInvokeCallbacks() {
         val launchText = composeRule.activity.getString(R.string.search_launch_top_match, "Maps")
-        val callText = composeRule.activity.getString(R.string.search_call_contact, "Alice")
+        val callLabel = composeRule.activity.getString(R.string.search_call_button_label)
+        val callText = composeRule.activity.getString(R.string.search_call_contact, callLabel, "Alice")
         var launchClicks = 0
         var callClicks = 0
 
@@ -173,6 +177,8 @@ class LauncherComposeCoverageAndroidTest {
     @Test
     fun launcherToolsOverlayWidgetsSelectsCatalogItem() {
         var selectedWidget: CanvasWidgetType? = null
+        val weatherTag = "widget_catalog_item_${CanvasWidgetType.Weather.name}"
+        val calendarTag = "widget_catalog_item_${CanvasWidgetType.Calendar.name}"
 
         composeRule.setContent {
             CanvasLauncherTheme {
@@ -180,6 +186,22 @@ class LauncherComposeCoverageAndroidTest {
                     toolsState = ToolsUiState(
                         isExpanded = true,
                         activeTool = LauncherToolId.Widgets,
+                        widgets = WidgetsUiState(
+                            items = listOf(
+                                WidgetCatalogItemUiState(
+                                    id = "weather",
+                                    titleResId = R.string.widget_catalog_weather_title,
+                                    subtitleResId = R.string.widget_catalog_weather_subtitle,
+                                    widgetType = CanvasWidgetType.Weather,
+                                ),
+                                WidgetCatalogItemUiState(
+                                    id = "calendar",
+                                    titleResId = R.string.widget_catalog_calendar_title,
+                                    subtitleResId = R.string.widget_catalog_calendar_subtitle,
+                                    widgetType = CanvasWidgetType.Calendar,
+                                ),
+                            ),
+                        ),
                     ),
                     onToolsToggle = {},
                     onToolSelected = { _ -> },
@@ -208,9 +230,14 @@ class LauncherComposeCoverageAndroidTest {
             }
         }
 
-        composeRule.onNodeWithText("Weather").assertExists().performClick()
+        composeRule.onNodeWithTag(weatherTag).assertExists().performClick()
         composeRule.runOnIdle {
             assertEquals(CanvasWidgetType.Weather, selectedWidget)
+        }
+
+        composeRule.onNodeWithTag(calendarTag).assertExists().performClick()
+        composeRule.runOnIdle {
+            assertEquals(CanvasWidgetType.Calendar, selectedWidget)
         }
     }
 
@@ -579,6 +606,7 @@ class LauncherComposeCoverageAndroidTest {
                         CanvasWidgetUiState("w2", CanvasWidgetType.ClockAnalog, WorldPoint(220f, -40f), 240f, 240f),
                         CanvasWidgetUiState("w3", CanvasWidgetType.Weather, WorldPoint(120f, 180f), 360f, 164f),
                         CanvasWidgetUiState("w4", CanvasWidgetType.Notifications, WorldPoint(-240f, 220f), 380f, 164f),
+                        CanvasWidgetUiState("w5", CanvasWidgetType.Calendar, WorldPoint(260f, 260f), 400f, 172f),
                     ),
                     frameDraft = null,
                     selectedFrameIdForResize = null,

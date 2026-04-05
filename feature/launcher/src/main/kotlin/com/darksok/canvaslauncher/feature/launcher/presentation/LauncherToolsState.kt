@@ -1,6 +1,8 @@
 package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import android.graphics.Bitmap
+import androidx.annotation.StringRes
+import com.darksok.canvaslauncher.feature.launcher.R
 
 enum class LauncherToolId {
     Search,
@@ -38,8 +40,8 @@ data class AppsListUiState(
 
 data class WidgetCatalogItemUiState(
     val id: String,
-    val title: String,
-    val subtitle: String,
+    @StringRes val titleResId: Int,
+    @StringRes val subtitleResId: Int,
     val widgetType: CanvasWidgetType,
 )
 
@@ -47,27 +49,33 @@ data class WidgetsUiState(
     val items: List<WidgetCatalogItemUiState> = listOf(
         WidgetCatalogItemUiState(
             id = "clock-digital",
-            title = "Clock",
-            subtitle = "Digital, no seconds",
+            titleResId = R.string.widget_catalog_clock_digital_title,
+            subtitleResId = R.string.widget_catalog_clock_digital_subtitle,
             widgetType = CanvasWidgetType.ClockDigital,
         ),
         WidgetCatalogItemUiState(
             id = "clock-analog",
-            title = "Analog clock",
-            subtitle = "Classic dial with hands",
+            titleResId = R.string.widget_catalog_clock_analog_title,
+            subtitleResId = R.string.widget_catalog_clock_analog_subtitle,
             widgetType = CanvasWidgetType.ClockAnalog,
         ),
         WidgetCatalogItemUiState(
             id = "weather",
-            title = "Weather",
-            subtitle = "Compact weather card",
+            titleResId = R.string.widget_catalog_weather_title,
+            subtitleResId = R.string.widget_catalog_weather_subtitle,
             widgetType = CanvasWidgetType.Weather,
         ),
         WidgetCatalogItemUiState(
             id = "notifications",
-            title = "Notifications",
-            subtitle = "System alert status",
+            titleResId = R.string.widget_catalog_notifications_title,
+            subtitleResId = R.string.widget_catalog_notifications_subtitle,
             widgetType = CanvasWidgetType.Notifications,
+        ),
+        WidgetCatalogItemUiState(
+            id = "calendar",
+            titleResId = R.string.widget_catalog_calendar_title,
+            subtitleResId = R.string.widget_catalog_calendar_subtitle,
+            widgetType = CanvasWidgetType.Calendar,
         ),
     ),
 )
