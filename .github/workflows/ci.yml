@@ -43,4 +43,4 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run build checks
-        run: ./gradlew :domain:test :core:model:test :core:performance:test :core:settings:test :feature:canvas:test :feature:launcher:test :app:testDebugUnitTest --stacktrace --no-daemon
+        run: ./gradlew :domain:test :core:model:test :core:performance:test :core:common:test :core:settings:testDebugUnitTest :core:database:testDebugUnitTest :core:packages:testDebugUnitTest :core:ui:testDebugUnitTest :feature:apps:testDebugUnitTest :feature:canvas:testDebugUnitTest :feature:launcher:testDebugUnitTest :app:testDebugUnitTest -x connectedDebugAndroidTest --stacktrace --no-daemon
