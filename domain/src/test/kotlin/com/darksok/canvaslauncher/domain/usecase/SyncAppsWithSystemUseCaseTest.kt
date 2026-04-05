@@ -4,16 +4,12 @@ import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.app.InstalledApp
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.model.ui.AppLayoutMode
-import com.darksok.canvaslauncher.domain.layout.InitialLayoutStrategy
-import com.darksok.canvaslauncher.domain.repository.CanvasAppsStore
-import com.darksok.canvaslauncher.domain.repository.IconCacheGateway
-import com.darksok.canvaslauncher.domain.repository.InstalledAppsSource
-import com.darksok.canvaslauncher.domain.repository.LayoutPreferencesRepository
+import com.darksok.canvaslauncher.domain.support.FakeCanvasAppsStore
+import com.darksok.canvaslauncher.domain.support.FakeIconCacheGateway
+import com.darksok.canvaslauncher.domain.support.FakeInstalledAppsSource
+import com.darksok.canvaslauncher.domain.support.FakeLayoutPreferencesRepository
+import com.darksok.canvaslauncher.domain.support.FakeLayoutStrategy
 import com.google.common.truth.Truth.assertThat
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -21,13 +17,14 @@ class SyncAppsWithSystemUseCaseTest {
 
     @Test
     fun `sync removes stale updates labels and adds missing apps`() = runTest {
-        val installedApps = listOf(
-            InstalledApp(packageName = "new.app", label = "New App"),
-            InstalledApp(packageName = "keep.app", label = "Keep Updated"),
+        val installedSource = FakeInstalledAppsSource(
+            listOf(
+                InstalledApp(packageName = "new.app", label = "New App"),
+                InstalledApp(packageName = "keep.app", label = "Keep Updated"),
+            ),
         )
-        val installedSource = FakeInstalledAppsSource(installedApps)
         val localStore = FakeCanvasAppsStore(
-            initial = listOf(
+            listOf(
                 CanvasApp("old.app", "Old", WorldPoint(1f, 1f)),
                 CanvasApp("keep.app", "Keep", WorldPoint(2f, 2f)),
             ),
@@ -46,94 +43,108 @@ class SyncAppsWithSystemUseCaseTest {
         assertThat(report.added).isEqualTo(1)
         assertThat(report.removed).isEqualTo(1)
         assertThat(report.updated).isEqualTo(1)
-
-        val packages = localStore.snapshot().map { it.packageName }
-        assertThat(packages).containsExactly("keep.app", "new.app")
+        assertThat(localStore.snapshot().map { it.packageName }).containsExactly("keep.app", "new.app")
         assertThat(localStore.snapshot().first { it.packageName == "keep.app" }.label).isEqualTo("Keep Updated")
         assertThat(iconCache.preloaded.last()).containsExactly("new.app", "keep.app")
         assertThat(iconCache.removed).contains("old.app")
     }
 
-    private class FakeInstalledAppsSource(
-        private val items: List<InstalledApp>,
-    ) : InstalledAppsSource {
-        override suspend fun getInstalledApps(): List<InstalledApp> = items
+    @Test
+    fun `sync skips preload when disabled`() = runTest {
+        val iconCache = FakeIconCacheGateway()
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(listOf(InstalledApp("pkg.one", "One"))),
+            appsStore = FakeCanvasAppsStore(),
+            layoutStrategy = FakeLayoutStrategy(),
+            iconCacheGateway = iconCache,
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(),
+        )
 
-        override suspend fun getInstalledApp(packageName: String): InstalledApp? {
-            return items.firstOrNull { it.packageName == packageName }
-        }
+        useCase(preloadIcons = false)
+
+        assertThat(iconCache.preloaded).isEmpty()
     }
 
-    private class FakeCanvasAppsStore(
-        initial: List<CanvasApp>,
-    ) : CanvasAppsStore {
-        private val state = MutableStateFlow(initial)
+    @Test
+    fun `sync does not call remove when nothing stale exists`() = runTest {
+        val store = FakeCanvasAppsStore(listOf(CanvasApp("pkg.one", "One", WorldPoint(0f, 0f))))
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(listOf(InstalledApp("pkg.one", "One"))),
+            appsStore = store,
+            layoutStrategy = FakeLayoutStrategy(),
+            iconCacheGateway = FakeIconCacheGateway(),
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(),
+        )
 
-        override fun observeApps(): Flow<List<CanvasApp>> = state.asStateFlow()
+        val report = useCase()
 
-        override suspend fun getAppsSnapshot(): List<CanvasApp> = state.value
-
-        override suspend fun upsertApps(apps: List<CanvasApp>) {
-            val current = state.value.associateBy { it.packageName }.toMutableMap()
-            apps.forEach { current[it.packageName] = it }
-            state.value = current.values.toList()
-        }
-
-        override suspend fun upsertApp(app: CanvasApp) {
-            upsertApps(listOf(app))
-        }
-
-        override suspend fun removePackages(packages: Set<String>) {
-            state.value = state.value.filterNot { it.packageName in packages }
-        }
-
-        override suspend fun removePackage(packageName: String) {
-            state.value = state.value.filterNot { it.packageName == packageName }
-        }
-
-        override suspend fun updatePosition(packageName: String, position: WorldPoint) {
-            state.value = state.value.map { app ->
-                if (app.packageName == packageName) app.copy(position = position) else app
-            }
-        }
-
-        fun snapshot(): List<CanvasApp> = state.value
+        assertThat(report.removed).isEqualTo(0)
+        assertThat(store.removedPackagesCalls).isEmpty()
     }
 
-    private class FakeLayoutStrategy : InitialLayoutStrategy {
-        override fun layout(
-            existingApps: List<CanvasApp>,
-            newApps: List<InstalledApp>,
-            center: WorldPoint,
-            mode: AppLayoutMode,
-        ): List<CanvasApp> {
-            return newApps.mapIndexed { index, app ->
-                CanvasApp(
-                    packageName = app.packageName,
-                    label = app.label,
-                    position = WorldPoint(center.x + index, center.y + index),
-                )
-            }
-        }
+    @Test
+    fun `sync does not call update when labels already match`() = runTest {
+        val store = FakeCanvasAppsStore(listOf(CanvasApp("pkg.one", "One", WorldPoint(0f, 0f))))
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(listOf(InstalledApp("pkg.one", "One"))),
+            appsStore = store,
+            layoutStrategy = FakeLayoutStrategy(),
+            iconCacheGateway = FakeIconCacheGateway(),
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(),
+        )
+
+        val report = useCase()
+
+        assertThat(report.updated).isEqualTo(0)
+        assertThat(store.upsertAppsCalls).isEmpty()
     }
 
-    private class FakeIconCacheGateway : IconCacheGateway {
-        val preloaded = mutableListOf<Set<String>>()
-        val removed = mutableListOf<String>()
+    @Test
+    fun `sync passes effective existing apps to layout after removals and updates`() = runTest {
+        val store = FakeCanvasAppsStore(
+            listOf(
+                CanvasApp("remove.me", "Remove", WorldPoint(0f, 0f)),
+                CanvasApp("keep.me", "Old Label", WorldPoint(5f, 5f)),
+            ),
+        )
+        val strategy = FakeLayoutStrategy()
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(
+                listOf(
+                    InstalledApp("keep.me", "New Label"),
+                    InstalledApp("new.app", "New App"),
+                ),
+            ),
+            appsStore = store,
+            layoutStrategy = strategy,
+            iconCacheGateway = FakeIconCacheGateway(),
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(AppLayoutMode.OVAL),
+        )
 
-        override suspend fun preload(packageNames: Collection<String>) {
-            preloaded += packageNames.toSet()
-        }
+        useCase(centerForNewApps = WorldPoint(9f, 9f))
 
-        override suspend fun invalidate(packageName: String) = Unit
-
-        override suspend fun remove(packageName: String) {
-            removed += packageName
-        }
+        val call = strategy.calls.single()
+        assertThat(call.existingApps.map { it.packageName }).containsExactly("keep.me")
+        assertThat(call.existingApps.single().label).isEqualTo("New Label")
+        assertThat(call.newApps.map { it.packageName }).containsExactly("new.app")
+        assertThat(call.center).isEqualTo(WorldPoint(9f, 9f))
+        assertThat(call.mode).isEqualTo(AppLayoutMode.OVAL)
     }
 
-    private class FakeLayoutPreferencesRepository : LayoutPreferencesRepository {
-        override fun observeLayoutMode(): Flow<AppLayoutMode> = flowOf(AppLayoutMode.SPIRAL)
-        override suspend fun setLayoutMode(layoutMode: AppLayoutMode) = Unit
+    @Test
+    fun `sync reports zeroes when data already aligned`() = runTest {
+        val useCase = SyncAppsWithSystemUseCase(
+            installedAppsSource = FakeInstalledAppsSource(listOf(InstalledApp("pkg.one", "One"))),
+            appsStore = FakeCanvasAppsStore(listOf(CanvasApp("pkg.one", "One", WorldPoint(0f, 0f)))),
+            layoutStrategy = FakeLayoutStrategy(),
+            iconCacheGateway = FakeIconCacheGateway(),
+            layoutPreferencesRepository = FakeLayoutPreferencesRepository(),
+        )
+
+        val report = useCase()
+
+        assertThat(report.added).isEqualTo(0)
+        assertThat(report.removed).isEqualTo(0)
+        assertThat(report.updated).isEqualTo(0)
     }
 }

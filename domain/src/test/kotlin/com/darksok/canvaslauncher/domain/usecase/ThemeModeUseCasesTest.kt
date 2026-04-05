@@ -1,12 +1,8 @@
 package com.darksok.canvaslauncher.domain.usecase
 
-import com.darksok.canvaslauncher.core.model.ui.DarkThemePalette
-import com.darksok.canvaslauncher.core.model.ui.LightThemePalette
 import com.darksok.canvaslauncher.core.model.ui.ThemeMode
-import com.darksok.canvaslauncher.domain.repository.ThemePreferencesRepository
+import com.darksok.canvaslauncher.domain.support.FakeThemePreferencesRepository
 import com.google.common.truth.Truth.assertThat
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -15,46 +11,31 @@ class ThemeModeUseCasesTest {
 
     @Test
     fun `observe theme mode returns repository flow value`() = runTest {
-        val repository = FakeThemePreferencesRepository(ThemeMode.DARK)
+        val repository = FakeThemePreferencesRepository(initialMode = ThemeMode.DARK)
         val useCase = ObserveThemeModeUseCase(repository)
-
-        val result = useCase().first()
-
-        assertThat(result).isEqualTo(ThemeMode.DARK)
+        assertThat(useCase().first()).isEqualTo(ThemeMode.DARK)
     }
 
     @Test
     fun `set theme mode updates repository`() = runTest {
-        val repository = FakeThemePreferencesRepository(ThemeMode.SYSTEM)
+        val repository = FakeThemePreferencesRepository(initialMode = ThemeMode.SYSTEM)
         val useCase = SetThemeModeUseCase(repository)
-
         useCase(ThemeMode.LIGHT)
-
         assertThat(repository.observeThemeMode().first()).isEqualTo(ThemeMode.LIGHT)
     }
 
-    private class FakeThemePreferencesRepository(
-        initial: ThemeMode,
-    ) : ThemePreferencesRepository {
+    @Test
+    fun `set theme mode records call`() = runTest {
+        val repository = FakeThemePreferencesRepository(initialMode = ThemeMode.SYSTEM)
+        val useCase = SetThemeModeUseCase(repository)
+        useCase(ThemeMode.DARK)
+        assertThat(repository.setModeCalls).containsExactly(ThemeMode.DARK)
+    }
 
-        private val state = MutableStateFlow(initial)
-        private val lightState = MutableStateFlow(LightThemePalette.SKY_BREEZE)
-        private val darkState = MutableStateFlow(DarkThemePalette.MIDNIGHT_BLUE)
-
-        override fun observeThemeMode(): Flow<ThemeMode> = state
-        override fun observeLightThemePalette(): Flow<LightThemePalette> = lightState
-        override fun observeDarkThemePalette(): Flow<DarkThemePalette> = darkState
-
-        override suspend fun setThemeMode(themeMode: ThemeMode) {
-            state.value = themeMode
-        }
-
-        override suspend fun setLightThemePalette(palette: LightThemePalette) {
-            lightState.value = palette
-        }
-
-        override suspend fun setDarkThemePalette(palette: DarkThemePalette) {
-            darkState.value = palette
-        }
+    @Test
+    fun `observe theme mode emits updated value after set`() = runTest {
+        val repository = FakeThemePreferencesRepository(initialMode = ThemeMode.SYSTEM)
+        SetThemeModeUseCase(repository)(ThemeMode.DARK)
+        assertThat(ObserveThemeModeUseCase(repository)().first()).isEqualTo(ThemeMode.DARK)
     }
 }

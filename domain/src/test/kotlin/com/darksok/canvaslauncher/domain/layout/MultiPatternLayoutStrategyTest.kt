@@ -1,66 +1,76 @@
 package com.darksok.canvaslauncher.domain.layout
 
+import com.darksok.canvaslauncher.core.model.app.CanvasApp
 import com.darksok.canvaslauncher.core.model.app.InstalledApp
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import com.darksok.canvaslauncher.core.model.ui.AppLayoutMode
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Test
+import kotlin.math.abs
 
 class MultiPatternLayoutStrategyTest {
 
+    private val strategy = MultiPatternLayoutStrategy()
+
+    @Test
+    fun `empty input returns empty output`() {
+        val result = strategy.layout(emptyList(), emptyList(), WorldPoint(0f, 0f), AppLayoutMode.RECTANGLE)
+        assertThat(result).isEmpty()
+    }
+
+    @Test
+    fun `spiral mode places apps through spiral branch`() {
+        val result = strategy.layout(emptyList(), sampleApps(3), WorldPoint(0f, 0f), AppLayoutMode.SPIRAL)
+        assertThat(result).hasSize(3)
+        assertThat(result.first().position).isEqualTo(WorldPoint(0f, 0f))
+    }
+
     @Test
     fun `rectangle mode places all apps with safe spacing`() {
-        val strategy = MultiPatternLayoutStrategy()
-        val apps = List(36) { index ->
-            InstalledApp(
-                packageName = "pkg.rectangle.$index",
-                label = "Rectangle $index",
-            )
-        }
+        val result = strategy.layout(emptyList(), sampleApps(36), WorldPoint(0f, 0f), AppLayoutMode.RECTANGLE)
+        assertThat(result).hasSize(36)
+        assertNoClosePairs(result.map { it.position }, 100f)
+    }
 
-        val result = strategy.layout(
-            existingApps = emptyList(),
-            newApps = apps,
-            center = WorldPoint(0f, 0f),
-            mode = AppLayoutMode.RECTANGLE,
-        )
+    @Test
+    fun `rectangle mode keeps single app at center`() {
+        val result = strategy.layout(emptyList(), sampleApps(1), WorldPoint(50f, -40f), AppLayoutMode.RECTANGLE)
+        assertThat(result.single().position).isEqualTo(WorldPoint(50f, -40f))
+    }
 
-        assertThat(result).hasSize(apps.size)
-        assertThat(result.map { it.packageName }).containsExactlyElementsIn(apps.map { it.packageName })
-        assertNoClosePairs(result.map { it.position }, minDistance = 100f)
+    @Test
+    fun `rectangle mode respects existing app count offset`() {
+        val existing = listOf(CanvasApp("existing", "Existing", WorldPoint(0f, 0f)))
+        val result = strategy.layout(existing, sampleApps(1), WorldPoint(0f, 0f), AppLayoutMode.RECTANGLE)
+        assertThat(result.single().position).isNotEqualTo(WorldPoint(0f, 0f))
     }
 
     @Test
     fun `circle and oval modes do not overlap icons`() {
-        val strategy = MultiPatternLayoutStrategy()
-        val apps = List(48) { index ->
-            InstalledApp(
-                packageName = "pkg.radial.$index",
-                label = "Radial $index",
-            )
-        }
+        val apps = sampleApps(48)
+        val circle = strategy.layout(emptyList(), apps, WorldPoint(0f, 0f), AppLayoutMode.CIRCLE)
+        val oval = strategy.layout(emptyList(), apps, WorldPoint(0f, 0f), AppLayoutMode.OVAL)
+        assertNoClosePairs(circle.map { it.position }, 100f)
+        assertNoClosePairs(oval.map { it.position }, 100f)
+    }
 
-        val circle = strategy.layout(
-            existingApps = emptyList(),
-            newApps = apps,
-            center = WorldPoint(0f, 0f),
-            mode = AppLayoutMode.CIRCLE,
-        )
-        val oval = strategy.layout(
-            existingApps = emptyList(),
-            newApps = apps,
-            center = WorldPoint(0f, 0f),
-            mode = AppLayoutMode.OVAL,
-        )
+    @Test
+    fun `circle mode keeps first app at center`() {
+        val result = strategy.layout(emptyList(), sampleApps(1), WorldPoint(10f, 20f), AppLayoutMode.CIRCLE)
+        assertThat(result.single().position).isEqualTo(WorldPoint(10f, 20f))
+    }
 
-        assertNoClosePairs(circle.map { it.position }, minDistance = 100f)
-        assertNoClosePairs(oval.map { it.position }, minDistance = 100f)
+    @Test
+    fun `oval mode stretches horizontal spread more than vertical`() {
+        val result = strategy.layout(emptyList(), sampleApps(24), WorldPoint(0f, 0f), AppLayoutMode.OVAL)
+        val xSpread = result.maxOf { it.position.x } - result.minOf { it.position.x }
+        val ySpread = result.maxOf { it.position.y } - result.minOf { it.position.y }
+        assertThat(xSpread).isGreaterThan(ySpread)
     }
 
     @Test
     fun `smart auto keeps groups separated and spaced`() {
-        val strategy = MultiPatternLayoutStrategy()
         val apps = listOf(
             InstalledApp("org.telegram.messenger", "Telegram"),
             InstalledApp("com.whatsapp", "WhatsApp"),
@@ -79,47 +89,44 @@ class MultiPatternLayoutStrategyTest {
             InstalledApp("com.android.settings", "Settings"),
             InstalledApp("com.android.chrome", "Chrome"),
         )
-
-        val result = strategy.layout(
-            existingApps = emptyList(),
-            newApps = apps,
-            center = WorldPoint(0f, 0f),
-            mode = AppLayoutMode.SMART_AUTO,
-        )
-
+        val result = strategy.layout(emptyList(), apps, WorldPoint(0f, 0f), AppLayoutMode.SMART_AUTO)
         val positions = result.map { it.position }
-        assertNoClosePairs(positions, minDistance = 100f)
-        val width = positions.maxOf { it.x } - positions.minOf { it.x }
-        val height = positions.maxOf { it.y } - positions.minOf { it.y }
-        assertThat(width).isGreaterThan(200f)
-        assertThat(height).isGreaterThan(200f)
+        assertNoClosePairs(positions, 100f)
+        assertThat(positions.maxOf { it.x } - positions.minOf { it.x }).isGreaterThan(200f)
+        assertThat(positions.maxOf { it.y } - positions.minOf { it.y }).isGreaterThan(200f)
+    }
+
+    @Test
+    fun `smart auto resolves collisions against existing apps`() {
+        val existing = listOf(CanvasApp("existing", "Existing", WorldPoint(0f, 0f)))
+        val result = strategy.layout(existing, listOf(InstalledApp("pkg.new", "New")), WorldPoint(0f, 0f), AppLayoutMode.SMART_AUTO)
+        assertThat(result.single().position).isNotEqualTo(WorldPoint(0f, 0f))
+    }
+
+    @Test
+    fun `smart auto handles duplicate packages without duplicate preferred slots`() {
+        val result = strategy.layout(
+            emptyList(),
+            listOf(InstalledApp("pkg.same", "Same"), InstalledApp("pkg.same", "Same copy")),
+            WorldPoint(0f, 0f),
+            AppLayoutMode.SMART_AUTO,
+        )
+        assertThat(result).hasSize(2)
+        assertThat(result.map { it.position }.distinct()).hasSize(2)
     }
 
     @Test
     fun `icon color mode keeps safe spacing as rectangle fallback`() {
-        val strategy = MultiPatternLayoutStrategy()
-        val apps = List(24) { index ->
-            InstalledApp(
-                packageName = "pkg.color.$index",
-                label = "Color $index",
-            )
-        }
-
-        val result = strategy.layout(
-            existingApps = emptyList(),
-            newApps = apps,
-            center = WorldPoint(0f, 0f),
-            mode = AppLayoutMode.ICON_COLOR,
-        )
-
-        assertThat(result).hasSize(apps.size)
-        assertNoClosePairs(result.map { it.position }, minDistance = 100f)
+        val result = strategy.layout(emptyList(), sampleApps(24), WorldPoint(0f, 0f), AppLayoutMode.ICON_COLOR)
+        assertThat(result).hasSize(24)
+        assertNoClosePairs(result.map { it.position }, 100f)
     }
 
-    private fun assertNoClosePairs(
-        points: List<WorldPoint>,
-        minDistance: Float,
-    ) {
+    private fun sampleApps(count: Int): List<InstalledApp> = List(count) { index ->
+        InstalledApp(packageName = "pkg.$index", label = "App $index")
+    }
+
+    private fun assertNoClosePairs(points: List<WorldPoint>, minDistance: Float) {
         val minDistanceSquared = minDistance * minDistance
         points.forEachIndexed { index, first ->
             points.drop(index + 1).forEach { second ->

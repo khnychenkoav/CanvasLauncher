@@ -18,11 +18,11 @@ fun CanvasLauncherTheme(
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) {
-            darkPalette.toColorScheme()
-        } else {
-            lightPalette.toColorScheme()
-        },
+        colorScheme = resolveCanvasLauncherColorScheme(
+            darkTheme = darkTheme,
+            lightPalette = lightPalette,
+            darkPalette = darkPalette,
+        ),
         content = content,
     )
 }
@@ -36,6 +36,22 @@ fun darkPalettePreviewColors(palette: DarkThemePalette): List<Color> {
     val spec = palette.toSpec()
     return listOf(spec.primary, spec.secondary, spec.primaryContainer, spec.surfaceVariant)
 }
+
+internal fun resolveCanvasLauncherColorScheme(
+    darkTheme: Boolean,
+    lightPalette: LightThemePalette,
+    darkPalette: DarkThemePalette,
+): ColorScheme {
+    return if (darkTheme) {
+        darkPalette.toColorScheme()
+    } else {
+        lightPalette.toColorScheme()
+    }
+}
+
+internal fun lightPaletteColorScheme(palette: LightThemePalette): ColorScheme = palette.toColorScheme()
+
+internal fun darkPaletteColorScheme(palette: DarkThemePalette): ColorScheme = palette.toColorScheme()
 
 private fun LightThemePalette.toColorScheme(): ColorScheme {
     val spec = toSpec()

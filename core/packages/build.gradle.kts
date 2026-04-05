@@ -35,5 +35,9 @@ dependencies {
     implementation(libs.javax.inject)
 
     ksp(libs.hilt.compiler)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
