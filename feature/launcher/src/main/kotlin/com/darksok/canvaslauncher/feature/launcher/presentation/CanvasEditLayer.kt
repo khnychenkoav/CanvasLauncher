@@ -1022,11 +1022,6 @@ private fun CanvasWidgetLayer(
         enabled = hasNotificationsWidget,
     )
     val liveNotificationEntries = rememberNotificationEntries(enabled = hasNotificationsWidget)
-    val tickerEnabled = hasNotificationsWidget &&
-        notificationAccessEnabled &&
-        notificationsEnabled &&
-        liveNotificationEntries.size > 1
-    val tickerClockMs = rememberTickerClock(enabled = tickerEnabled)
 
     val weatherTitleText = stringResource(id = R.string.widget_weather_title)
     val weatherHourlyPrefix = stringResource(id = R.string.widget_weather_hourly_prefix)
@@ -1120,6 +1115,26 @@ private fun CanvasWidgetLayer(
             )
         }
     }
+    val hasVisibleNotificationsWidget = remember(
+        widgetLayouts,
+        cameraState.viewportWidthPx,
+        cameraState.viewportHeightPx,
+    ) {
+        val viewportWidthPx = cameraState.viewportWidthPx.toFloat()
+        val viewportHeightPx = cameraState.viewportHeightPx.toFloat()
+        widgetLayouts.any { layout ->
+            layout.widget.type == CanvasWidgetType.Notifications &&
+                layout.leftPx < viewportWidthPx &&
+                layout.topPx < viewportHeightPx &&
+                (layout.leftPx + layout.widthPx) > 0f &&
+                (layout.topPx + layout.heightPx) > 0f
+        }
+    }
+    val tickerEnabled = hasVisibleNotificationsWidget &&
+        notificationAccessEnabled &&
+        notificationsEnabled &&
+        liveNotificationEntries.size > 1
+    val tickerClockMs = rememberTickerClock(enabled = tickerEnabled)
 
     if (isWidgetMode) {
         Box(
@@ -1688,11 +1703,22 @@ private fun rememberTickerClock(enabled: Boolean): Long {
             return@produceState
         }
         while (true) {
-            value = System.currentTimeMillis()
-            delay(WIDGET_NOTIFICATION_TICKER_FRAME_MS)
+            val currentMs = System.currentTimeMillis()
+            value = currentMs
+            delay(notificationTickerRefreshDelayMs(currentMs))
         }
     }
     return now
+}
+
+private fun notificationTickerRefreshDelayMs(nowMs: Long): Long {
+    val cycleDurationMs = WIDGET_NOTIFICATION_STATIONARY_MS + WIDGET_NOTIFICATION_SCROLL_MS
+    val phaseMs = nowMs % cycleDurationMs
+    return if (phaseMs < WIDGET_NOTIFICATION_STATIONARY_MS) {
+        (WIDGET_NOTIFICATION_STATIONARY_MS - phaseMs).coerceAtLeast(1L)
+    } else {
+        min(WIDGET_NOTIFICATION_TICKER_FRAME_MS, (cycleDurationMs - phaseMs).coerceAtLeast(1L))
+    }
 }
 
 private data class WeatherWidgetSnapshot(

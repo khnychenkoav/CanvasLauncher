@@ -234,6 +234,35 @@ class CanvasEditLayerInternalsTest {
         assertThat(ellipsized.length).isAtMost("very long line for ellipsis".length)
     }
 
+    @Test
+    fun `notification ticker refresh delay preserves stationary and scroll cadence`() {
+        val atCycleStart = callStatic(
+            "notificationTickerRefreshDelayMs",
+            arrayOf(Long::class.javaPrimitiveType!!),
+            0L,
+        ) as Long
+        val nearStationaryEnd = callStatic(
+            "notificationTickerRefreshDelayMs",
+            arrayOf(Long::class.javaPrimitiveType!!),
+            4_999L,
+        ) as Long
+        val atScrollStart = callStatic(
+            "notificationTickerRefreshDelayMs",
+            arrayOf(Long::class.javaPrimitiveType!!),
+            5_000L,
+        ) as Long
+        val nearScrollEnd = callStatic(
+            "notificationTickerRefreshDelayMs",
+            arrayOf(Long::class.javaPrimitiveType!!),
+            5_849L,
+        ) as Long
+
+        assertThat(atCycleStart).isEqualTo(5_000L)
+        assertThat(nearStationaryEnd).isEqualTo(1L)
+        assertThat(atScrollStart).isEqualTo(48L)
+        assertThat(nearScrollEnd).isEqualTo(1L)
+    }
+
     private fun newHourlyForecast(hour: String, temp: Int): Any {
         return liveHourlyClass.getDeclaredConstructor(String::class.java, Int::class.javaPrimitiveType!!)
             .apply { isAccessible = true }
