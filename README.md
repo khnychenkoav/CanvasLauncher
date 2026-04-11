@@ -31,6 +31,7 @@
   <img src="docs/readme/screens/mainscreen.png" alt="Home canvas (dark + smart)" width="230" />
   <img src="docs/readme/screens/toolsexpanded.png" alt="Tools panel expanded" width="230" />
   <img src="docs/readme/screens/appsearch.png" alt="Search overlay" width="230" />
+  <img src="docs/readme/screens/minimaoandnotes.png" alt="Minimap" width="230" />
 </p>
 
 <p align="center">

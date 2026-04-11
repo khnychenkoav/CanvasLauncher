@@ -91,6 +91,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.darksok.canvaslauncher.core.ui.theme.primaryTextGlowShadow
 import com.darksok.canvaslauncher.feature.launcher.R
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -1442,6 +1443,7 @@ internal object SearchSuggestionTextFormatter {
                 style = SpanStyle(
                     color = highlightColor,
                     fontWeight = FontWeight.SemiBold,
+                    shadow = primaryTextGlowShadow(highlightColor),
                 ),
             ) {
                 append(suffix)

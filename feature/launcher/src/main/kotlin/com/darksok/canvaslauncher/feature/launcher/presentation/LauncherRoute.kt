@@ -64,6 +64,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -85,6 +86,9 @@ import com.darksok.canvaslauncher.feature.canvas.CanvasBackgroundConfig
 import com.darksok.canvaslauncher.feature.canvas.InfiniteCanvas
 import com.darksok.canvaslauncher.feature.launcher.R
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -317,6 +321,7 @@ fun LauncherRoute(
                             MiniMapOverlay(
                                 appPositions = uiState.allAppPositions,
                                 cameraState = uiState.cameraState,
+                                hazeState = hazeState,
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .navigationBarsPadding()
@@ -730,68 +735,103 @@ private fun SystemBarsContrastEffect(darkTheme: Boolean) {
 private fun MiniMapOverlay(
     appPositions: List<com.darksok.canvaslauncher.core.model.canvas.WorldPoint>,
     cameraState: com.darksok.canvaslauncher.core.model.canvas.CameraState,
+    hazeState: HazeState?,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    val blurTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.26f)
+    val hazeStyle = remember(blurTint) {
+        HazeStyle(
+            backgroundColor = Color.Transparent,
+            tint = HazeTint(blurTint),
+            blurRadius = 18.dp,
+            noiseFactor = 0.03f,
+            fallbackTint = HazeTint(blurTint.copy(alpha = 0.40f)),
+        )
+    }
+    val hazeBackdropModifier = if (hazeState != null) {
+        Modifier.hazeEffect(state = hazeState, style = hazeStyle)
+    } else {
+        Modifier.background(blurTint.copy(alpha = 0.44f))
+    }
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+        color = Color.Transparent,
         tonalElevation = 4.dp,
         modifier = modifier
             .size(152.dp)
-            .clip(shape)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
-                shape = shape,
-            ),
+            .clip(shape),
     ) {
-        val lineColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-        val appColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-        val userColor = MaterialTheme.colorScheme.primary
-        val viewportColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.85f)
-
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(8.dp),
-        ) {
-            val projection = MiniMapProjector.project(
-                appPositions = appPositions,
-                camera = cameraState,
-                mapWidthPx = size.width,
-                mapHeightPx = size.height,
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .then(hazeBackdropModifier),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.12f)),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+                        shape = shape,
+                    ),
             )
 
-            projection.appPoints.forEach { point ->
+            val lineColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            val appColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+            val userColor = MaterialTheme.colorScheme.primary
+            val viewportColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.85f)
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+            ) {
+                val projection = MiniMapProjector.project(
+                    appPositions = appPositions,
+                    camera = cameraState,
+                    mapWidthPx = size.width,
+                    mapHeightPx = size.height,
+                )
+
+                projection.appPoints.forEach { point ->
+                    drawCircle(
+                        color = appColor,
+                        radius = 1.8.dp.toPx(),
+                        center = Offset(point.x, point.y),
+                    )
+                }
+
+                val user = Offset(projection.userPoint.x, projection.userPoint.y)
+                drawLine(lineColor, Offset(user.x, 0f), Offset(user.x, size.height), 1.dp.toPx())
+                drawLine(lineColor, Offset(0f, user.y), Offset(size.width, user.y), 1.dp.toPx())
+
+                val viewport = projection.viewportRect
+                drawRoundRect(
+                    color = viewportColor,
+                    topLeft = Offset(viewport.left, viewport.top),
+                    size = Size(
+                        width = (viewport.right - viewport.left).coerceAtLeast(2.dp.toPx()),
+                        height = (viewport.bottom - viewport.top).coerceAtLeast(2.dp.toPx()),
+                    ),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    style = Stroke(width = 1.2.dp.toPx()),
+                )
+
                 drawCircle(
-                    color = appColor,
-                    radius = 1.8.dp.toPx(),
-                    center = Offset(point.x, point.y),
+                    color = userColor,
+                    radius = 3.2.dp.toPx(),
+                    center = user,
                 )
             }
-
-            val user = Offset(projection.userPoint.x, projection.userPoint.y)
-            drawLine(lineColor, Offset(user.x, 0f), Offset(user.x, size.height), 1.dp.toPx())
-            drawLine(lineColor, Offset(0f, user.y), Offset(size.width, user.y), 1.dp.toPx())
-
-            val viewport = projection.viewportRect
-            drawRoundRect(
-                color = viewportColor,
-                topLeft = Offset(viewport.left, viewport.top),
-                size = Size(
-                    width = (viewport.right - viewport.left).coerceAtLeast(2.dp.toPx()),
-                    height = (viewport.bottom - viewport.top).coerceAtLeast(2.dp.toPx()),
-                ),
-                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                style = Stroke(width = 1.2.dp.toPx()),
-            )
-
-            drawCircle(
-                color = userColor,
-                radius = 3.2.dp.toPx(),
-                center = user,
-            )
         }
     }
 }
