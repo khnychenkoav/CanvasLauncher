@@ -25,6 +25,26 @@
   <img src="https://img.shields.io/badge/Architecture-Multi--Module-0A66C2" alt="Multi-module" />
 </p>
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/readme/screens/mainscreen.png" alt="Home canvas (dark + smart)" width="230" />
+  <img src="docs/readme/screens/toolsexpanded.png" alt="Tools panel expanded" width="230" />
+  <img src="docs/readme/screens/appsearch.png" alt="Search overlay" width="230" />
+</p>
+
+<p align="center">
+  <img src="docs/readme/screens/applist.png" alt="App list panel" width="230" />
+  <img src="docs/readme/screens/widgetpicker.png" alt="Widget picker" width="230" />
+  <img src="docs/readme/screens/editscreen.png" alt="Edit mode" width="230" />
+</p>
+
+<p align="center">
+  <img src="docs/readme/screens/permissions.png" alt="Permissions screen" width="230" />
+  <img src="docs/readme/screens/settings.png" alt="Settings screen" width="230" />
+  <img src="docs/readme/screens/themepicker.png" alt="Theme picker" width="230" />
+</p>
+
 ## Why Canvas Launcher
 Most launchers optimize for fixed pages and static icon grids. Canvas Launcher optimizes for spatial memory and flow:
 - no page borders;
