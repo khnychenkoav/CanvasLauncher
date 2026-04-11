@@ -203,7 +203,6 @@ fun CanvasEditLayer(
     val frameTitleTextSizePx = with(density) { FRAME_TITLE_TEXT_SIZE_SP.toPx() }
     val frameTitleFillColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f)
     val frameTitleTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
-    val stickyTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
     val frameTitlePaint = remember {
         AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             isLinearText = true
@@ -215,19 +214,42 @@ fun CanvasEditLayer(
             isLinearText = true
         }
     }
+    val stickyMetaPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.RIGHT
+            isLinearText = true
+        }
+    }
     val canvasTextPaint = remember {
         AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             textAlign = AndroidPaint.Align.LEFT
             isLinearText = true
         }
     }
+    val frameGlowPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.STROKE
+            isDither = true
+            maskFilter = BlurMaskFilter(FRAME_BORDER_GLOW_RADIUS_PX, BlurMaskFilter.Blur.NORMAL)
+        }
+    }
+    val stickyGlowPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.STROKE
+            isDither = true
+            maskFilter = BlurMaskFilter(FRAME_BORDER_GLOW_RADIUS_PX, BlurMaskFilter.Blur.NORMAL)
+        }
+    }
     val typography = MaterialTheme.typography
     SideEffect {
         frameTitlePaint.textSize = frameTitleTextSizePx
         frameTitlePaint.color = frameTitleTextColor.toArgb()
-        stickyTextPaint.color = stickyTextColor.toArgb()
+        stickyTextPaint.color = Color.White.toArgb()
+        frameGlowPaint.strokeWidth = frameBorderStrokePx + FRAME_BORDER_GLOW_EXTRA_STROKE_PX
+        stickyGlowPaint.strokeWidth = frameBorderStrokePx + FRAME_BORDER_GLOW_EXTRA_STROKE_PX
         applyPaintTypography(frameTitlePaint, typography.labelLarge, paintTypefaces)
         applyPaintTypography(stickyTextPaint, typography.bodyMedium, paintTypefaces)
+        applyPaintTypography(stickyMetaPaint, typography.labelSmall, paintTypefaces)
         applyPaintTypography(canvasTextPaint, typography.bodyMedium, paintTypefaces)
     }
     val tracksMultiTouch = isEditActive || isWidgetMode
@@ -318,6 +340,20 @@ fun CanvasEditLayer(
                     size = Size(item.widthPx, item.heightPx),
                     cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
                 )
+                drawIntoCanvas { canvas ->
+                    frameGlowPaint.color = Color(item.frame.colorArgb)
+                        .copy(alpha = FRAME_BORDER_GLOW_ALPHA)
+                        .toArgb()
+                    canvas.nativeCanvas.drawRoundRect(
+                        item.leftPx,
+                        item.topPx,
+                        item.leftPx + item.widthPx,
+                        item.topPx + item.heightPx,
+                        frameCornerRadiusPx,
+                        frameCornerRadiusPx,
+                        frameGlowPaint,
+                    )
+                }
                 drawRoundRect(
                     color = Color(item.frame.colorArgb).copy(alpha = 0.48f),
                     topLeft = Offset(item.leftPx, item.topPx),
@@ -441,82 +477,84 @@ fun CanvasEditLayer(
                 }
             }
 
-            val frameTitle = frame.title.ifBlank { frameTitleFallbackText }
-            val frameTitleBounds = estimateTextBoundsPx(
-                text = frameTitle,
-                textSizePx = frameTitleTextSizePx,
-            )
-            val frameTitleWidthPx = frameTitleBounds.widthPx + frameTitleHorizontalPaddingPx * 2f
-            val frameTitleHeightPx = frameTitleBounds.heightPx + frameTitleVerticalPaddingPx * 2f
-            val frameTitleLeftPx = item.leftPx + frameTitleOffsetPx
-            val frameTitleTopPx = item.topPx + frameTitleOffsetPx
-            Canvas(
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = frameTitleLeftPx
-                        translationY = frameTitleTopPx
-                    }
-                    .requiredSize(
-                        width = with(density) { frameTitleWidthPx.toDp() },
-                        height = with(density) { frameTitleHeightPx.toDp() },
-                    )
-                    .zIndex(0.32f),
-            ) {
-                drawRoundRect(
-                    color = frameTitleFillColor,
-                    cornerRadius = CornerRadius(frameTitleCornerRadiusPx, frameTitleCornerRadiusPx),
+            if (scale >= FRAME_TITLE_MIN_SCALE_TO_SHOW) {
+                val frameTitle = frame.title.ifBlank { frameTitleFallbackText }
+                val frameTitleBounds = estimateTextBoundsPx(
+                    text = frameTitle,
+                    textSizePx = frameTitleTextSizePx,
                 )
-                drawIntoCanvas { canvas ->
-                    val fontMetrics = frameTitlePaint.fontMetrics
-                    val baseline = frameTitleVerticalPaddingPx - fontMetrics.ascent
-                    canvas.nativeCanvas.drawText(
-                        frameTitle,
-                        frameTitleHorizontalPaddingPx,
-                        baseline,
-                        frameTitlePaint,
+                val frameTitleWidthPx = frameTitleBounds.widthPx + frameTitleHorizontalPaddingPx * 2f
+                val frameTitleHeightPx = frameTitleBounds.heightPx + frameTitleVerticalPaddingPx * 2f
+                val frameTitleLeftPx = item.leftPx + frameTitleOffsetPx
+                val frameTitleTopPx = item.topPx + frameTitleOffsetPx
+                Canvas(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationX = frameTitleLeftPx
+                            translationY = frameTitleTopPx
+                        }
+                        .requiredSize(
+                            width = with(density) { frameTitleWidthPx.toDp() },
+                            height = with(density) { frameTitleHeightPx.toDp() },
+                        )
+                        .zIndex(0.32f),
+                ) {
+                    drawRoundRect(
+                        color = frameTitleFillColor,
+                        cornerRadius = CornerRadius(frameTitleCornerRadiusPx, frameTitleCornerRadiusPx),
                     )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = frameTitleLeftPx
-                        translationY = frameTitleTopPx
+                    drawIntoCanvas { canvas ->
+                        val fontMetrics = frameTitlePaint.fontMetrics
+                        val baseline = frameTitleVerticalPaddingPx - fontMetrics.ascent
+                        canvas.nativeCanvas.drawText(
+                            frameTitle,
+                            frameTitleHorizontalPaddingPx,
+                            baseline,
+                            frameTitlePaint,
+                        )
                     }
-                    .requiredSize(
-                        width = with(density) { frameTitleWidthPx.toDp() },
-                        height = with(density) { frameTitleHeightPx.toDp() },
-                    )
-                    .zIndex(0.33f)
-                    .objectMoveModifier(
-                        enabled = isEditActive && allowsObjectMove,
-                        target = CanvasObjectDragTarget.Frame(frame.id),
-                        nodeTopLeftScreen = ScreenPoint(
-                            x = frameTitleLeftPx,
-                            y = frameTitleTopPx,
+                }
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationX = frameTitleLeftPx
+                            translationY = frameTitleTopPx
+                        }
+                        .requiredSize(
+                            width = with(density) { frameTitleWidthPx.toDp() },
+                            height = with(density) { frameTitleHeightPx.toDp() },
+                        )
+                        .zIndex(0.33f)
+                        .objectMoveModifier(
+                            enabled = isEditActive && allowsObjectMove,
+                            target = CanvasObjectDragTarget.Frame(frame.id),
+                            nodeTopLeftScreen = ScreenPoint(
+                                x = frameTitleLeftPx,
+                                y = frameTitleTopPx,
+                            ),
+                            canvasWidthPx = viewportWidthPx,
+                            canvasHeightPx = viewportHeightPx,
+                            autoPanZonePx = autoPanZonePx,
+                            autoPanMaxStepPx = autoPanMaxStepPx,
+                            onObjectDragStart = onObjectDragStart,
+                            onObjectDragDelta = onObjectDragDelta,
+                            onObjectDragEnd = onObjectDragEnd,
+                            onObjectDragCancel = onObjectDragCancel,
+                            onAutoPanDelta = onAutoPanDelta,
+                        )
+                        .then(
+                            if (isEditActive && allowsObjectTap) {
+                                Modifier.pointerInput(frame.id, editState.selectedTool) {
+                                    detectTapGestures(
+                                        onTap = { onFrameTap(frame.id) },
+                                    )
+                                }
+                            } else {
+                                Modifier
+                            },
                         ),
-                        canvasWidthPx = viewportWidthPx,
-                        canvasHeightPx = viewportHeightPx,
-                        autoPanZonePx = autoPanZonePx,
-                        autoPanMaxStepPx = autoPanMaxStepPx,
-                        onObjectDragStart = onObjectDragStart,
-                        onObjectDragDelta = onObjectDragDelta,
-                        onObjectDragEnd = onObjectDragEnd,
-                        onObjectDragCancel = onObjectDragCancel,
-                        onAutoPanDelta = onAutoPanDelta,
-                    )
-                    .then(
-                        if (isEditActive && allowsObjectTap) {
-                            Modifier.pointerInput(frame.id, editState.selectedTool) {
-                                detectTapGestures(
-                                    onTap = { onFrameTap(frame.id) },
-                                )
-                            }
-                        } else {
-                            Modifier
-                        },
-                    ),
-            )
+                )
+            }
 
             if (isEditActive && allowsFrameBorderSelection && selectedFrameIdForResize == frame.id) {
                 SelectionDeleteButton(
@@ -567,6 +605,20 @@ fun CanvasEditLayer(
                     size = Size(rectWidth, rectHeight),
                     cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
                 )
+                drawIntoCanvas { canvas ->
+                    frameGlowPaint.color = Color(draft.colorArgb)
+                        .copy(alpha = FRAME_BORDER_GLOW_ALPHA)
+                        .toArgb()
+                    canvas.nativeCanvas.drawRoundRect(
+                        topLeft.x,
+                        topLeft.y,
+                        topLeft.x + rectWidth,
+                        topLeft.y + rectHeight,
+                        frameCornerRadiusPx,
+                        frameCornerRadiusPx,
+                        frameGlowPaint,
+                    )
+                }
                 drawRoundRect(
                     color = Color(draft.colorArgb).copy(alpha = 0.86f),
                     topLeft = Offset(topLeft.x, topLeft.y),
@@ -756,32 +808,85 @@ fun CanvasEditLayer(
                 .fillMaxSize()
                 .zIndex(0.6f),
         ) {
-            stickyLayouts.forEach { layout ->
+            stickyLayouts.forEachIndexed { index, layout ->
+                val noteColor = Color(layout.note.colorArgb)
+                val textColor = stickyNoteTextColor(layout.note.colorArgb)
+                val metaColor = stickyNoteMetaColor(layout.note.colorArgb)
+                val pinColor = stickyNotePinColor(layout.note.colorArgb)
                 val noteRectTopLeft = Offset(layout.leftPx, layout.topPx)
+                drawIntoCanvas { canvas ->
+                    stickyGlowPaint.color = noteColor.copy(alpha = FRAME_BORDER_GLOW_ALPHA).toArgb()
+                    canvas.nativeCanvas.drawRect(
+                        layout.leftPx,
+                        layout.topPx,
+                        layout.leftPx + layout.noteSizePx,
+                        layout.topPx + layout.noteSizePx,
+                        stickyGlowPaint,
+                    )
+                }
                 drawRect(
-                    color = Color(layout.note.colorArgb).copy(alpha = 0.92f),
+                    color = noteColor.copy(alpha = STICKY_NOTE_FILL_ALPHA),
                     topLeft = noteRectTopLeft,
                     size = Size(layout.noteSizePx, layout.noteSizePx),
                 )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.14f),
-                        ),
-                        startY = layout.topPx + layout.noteSizePx * 0.70f,
-                        endY = layout.topPx + layout.noteSizePx,
+                drawLine(
+                    color = textColor.copy(alpha = STICKY_NOTE_DIVIDER_ALPHA),
+                    start = Offset(
+                        x = layout.leftPx + layout.noteSizePx * STICKY_NOTE_DIVIDER_INSET_FACTOR,
+                        y = layout.topPx + layout.noteSizePx * STICKY_NOTE_DIVIDER_Y_FACTOR,
                     ),
-                    topLeft = Offset(layout.leftPx, layout.topPx + layout.noteSizePx * 0.70f),
-                    size = Size(layout.noteSizePx, layout.noteSizePx * 0.30f),
+                    end = Offset(
+                        x = layout.leftPx + layout.noteSizePx * (1f - STICKY_NOTE_DIVIDER_INSET_FACTOR),
+                        y = layout.topPx + layout.noteSizePx * STICKY_NOTE_DIVIDER_Y_FACTOR,
+                    ),
+                    strokeWidth = (layout.noteSizePx * STICKY_NOTE_DIVIDER_STROKE_FACTOR)
+                        .coerceIn(STICKY_NOTE_DIVIDER_MIN_STROKE_PX, STICKY_NOTE_DIVIDER_MAX_STROKE_PX),
+                    cap = StrokeCap.Round,
                 )
+                drawStickyPinIcon(
+                    topLeft = noteRectTopLeft,
+                    noteSizePx = layout.noteSizePx,
+                    bodyTextSizePx = layout.textLayout.textSizePx,
+                    color = pinColor,
+                )
+                drawIntoCanvas { canvas ->
+                    val metaTextSizePx = (layout.textLayout.textSizePx * STICKY_NOTE_META_TEXT_SIZE_TO_BODY_FACTOR)
+                        .coerceAtLeast(STICKY_NOTE_META_TEXT_MIN_SIZE_PX)
+                    stickyMetaPaint.color = metaColor.toArgb()
+                    stickyMetaPaint.textSize = metaTextSizePx
+                    stickyMetaPaint.textAlign = AndroidPaint.Align.RIGHT
+                    val labelTop = layout.topPx + max(
+                        layout.textPaddingPx * STICKY_NOTE_META_TOP_PADDING_FACTOR,
+                        layout.textLayout.lineHeightPx * STICKY_NOTE_META_TOP_LINE_FACTOR,
+                    )
+                    val baselineY = labelTop - stickyMetaPaint.fontMetrics.ascent
+                    val rightX = layout.leftPx + layout.noteSizePx *
+                        (1f - STICKY_NOTE_META_HORIZONTAL_INSET_FACTOR)
+                    canvas.nativeCanvas.drawText(
+                        "STICKY_NOTE_${index + 1}",
+                        rightX,
+                        baselineY,
+                        stickyMetaPaint,
+                    )
+                }
+                val stickyHeaderReservedPx = max(
+                    layout.textLayout.lineHeightPx * STICKY_NOTE_HEADER_RESERVED_LINE_FACTOR,
+                    layout.textPaddingPx * STICKY_NOTE_HEADER_RESERVED_PADDING_FACTOR,
+                )
+                val stickyFooterReservedPx = max(
+                    layout.textLayout.lineHeightPx * STICKY_NOTE_FOOTER_RESERVED_LINE_FACTOR,
+                    layout.textPaddingPx * STICKY_NOTE_FOOTER_RESERVED_PADDING_FACTOR,
+                )
+                stickyTextPaint.color = textColor.toArgb()
                 drawStickyNoteText(
                     text = layout.noteText,
                     paint = stickyTextPaint,
                     contentLeftPx = layout.leftPx + layout.textPaddingPx,
-                    contentTopPx = layout.topPx + layout.textPaddingPx,
+                    contentTopPx = layout.topPx + layout.textPaddingPx + stickyHeaderReservedPx,
                     contentWidthPx = layout.textContentWidthPx,
-                    contentHeightPx = layout.textContentHeightPx,
+                    contentHeightPx = (
+                        layout.textContentHeightPx - stickyHeaderReservedPx - stickyFooterReservedPx
+                        ).coerceAtLeast(8f),
                     textSizePx = layout.textLayout.textSizePx,
                     lineHeightPx = layout.textLayout.lineHeightPx,
                     maxLines = layout.textLayout.maxLines,
@@ -1231,7 +1336,10 @@ private fun CanvasWidgetLayer(
                                 layout.heightPx * WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION,
                             )
                         widgetClockPaint.textSize = clockTextSizePx
-                        widgetClockPaint.color = widgetAccentColor.toArgb()
+                        widgetClockPaint.setWidgetTextColor(
+                            color = widgetAccentColor,
+                            glow = true,
+                        )
                         val maxClockWidth = (layout.widthPx * 0.86f).coerceAtLeast(18f)
                         val clockLine = ellipsizeToWidth(
                             text = digitalClockText,
@@ -1331,15 +1439,18 @@ private fun CanvasWidgetLayer(
                             .coerceAtLeast(10f)
                             .coerceAtMost(layout.heightPx * WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION)
                         widgetTitlePaint.textSize = titleSize
-                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetTitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
                         widgetBodyPaint.textSize = bodySize
-                        widgetBodyPaint.color = if (weatherSnapshot.isResolved) {
-                            widgetAccentColor.toArgb()
-                        } else {
-                            widgetSecondaryTextColor.toArgb()
-                        }
+                        widgetBodyPaint.setWidgetTextColor(
+                            color = if (weatherSnapshot.isResolved) {
+                                widgetAccentColor
+                            } else {
+                                widgetSecondaryTextColor
+                            },
+                            glow = weatherSnapshot.isResolved,
+                        )
                         widgetSubtitlePaint.textSize = subtitleSize
-                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetSubtitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
 
                         val titleBaseline = layout.topPx + layout.heightPx * 0.20f
                         val bodyBaseline = layout.topPx + layout.heightPx * 0.45f
@@ -1433,11 +1544,14 @@ private fun CanvasWidgetLayer(
                             widgetSecondaryTextColor
                         }
                         widgetTitlePaint.textSize = titleSize
-                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetTitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
                         widgetBodyPaint.textSize = bodySize
-                        widgetBodyPaint.color = statusColor.toArgb()
+                        widgetBodyPaint.setWidgetTextColor(
+                            color = statusColor,
+                            glow = hasLiveTicker,
+                        )
                         widgetSubtitlePaint.textSize = subtitleSize
-                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetSubtitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
 
                         val titleBaseline = layout.topPx + layout.heightPx * 0.24f
                         val bodyBaseline = layout.topPx + layout.heightPx * 0.58f
@@ -1548,15 +1662,18 @@ private fun CanvasWidgetLayer(
                             .coerceAtLeast(10f)
                             .coerceAtMost(layout.heightPx * WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION)
                         widgetTitlePaint.textSize = titleSize
-                        widgetTitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetTitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
                         widgetBodyPaint.textSize = bodySize
-                        widgetBodyPaint.color = if (calendarSnapshot.isResolved) {
-                            widgetAccentColor.toArgb()
-                        } else {
-                            widgetSecondaryTextColor.toArgb()
-                        }
+                        widgetBodyPaint.setWidgetTextColor(
+                            color = if (calendarSnapshot.isResolved) {
+                                widgetAccentColor
+                            } else {
+                                widgetSecondaryTextColor
+                            },
+                            glow = calendarSnapshot.isResolved,
+                        )
                         widgetSubtitlePaint.textSize = subtitleSize
-                        widgetSubtitlePaint.color = widgetSecondaryTextColor.toArgb()
+                        widgetSubtitlePaint.setWidgetTextColor(widgetSecondaryTextColor)
 
                         val titleBaseline = layout.topPx + layout.heightPx * 0.23f
                         val bodyBaseline = layout.topPx + layout.heightPx * 0.52f
@@ -3313,6 +3430,59 @@ private fun estimateTextBoundsPx(
     return EstimatedTextBoundsPx(widthPx = widthPx, heightPx = heightPx)
 }
 
+private fun stickyNoteTextColor(noteColorArgb: Int): Color {
+    val noteRgb = noteColorArgb and 0x00FFFFFF
+    val stickyYellowRgb = STICKY_YELLOW_ARGB and 0x00FFFFFF
+    return if (noteRgb == stickyYellowRgb) Color.Black else Color.White
+}
+
+private fun stickyNoteMetaColor(noteColorArgb: Int): Color {
+    val noteRgb = noteColorArgb and 0x00FFFFFF
+    val stickyYellowRgb = STICKY_YELLOW_ARGB and 0x00FFFFFF
+    return if (noteRgb == stickyYellowRgb) {
+        Color.Black.copy(alpha = 0.44f)
+    } else {
+        Color.White.copy(alpha = 0.70f)
+    }
+}
+
+private fun stickyNotePinColor(noteColorArgb: Int): Color {
+    val noteRgb = noteColorArgb and 0x00FFFFFF
+    val stickyYellowRgb = STICKY_YELLOW_ARGB and 0x00FFFFFF
+    return if (noteRgb == stickyYellowRgb) Color.Black else Color.White
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStickyPinIcon(
+    topLeft: Offset,
+    noteSizePx: Float,
+    bodyTextSizePx: Float,
+    color: Color,
+) {
+    val pinScaleBasePx = bodyTextSizePx.coerceAtLeast(STICKY_NOTE_PIN_MIN_BASE_TEXT_PX)
+    val headCenter = Offset(
+        x = topLeft.x + noteSizePx * STICKY_NOTE_PIN_X_FACTOR,
+        y = topLeft.y + noteSizePx * STICKY_NOTE_PIN_Y_FACTOR,
+    )
+    val headRadius = (pinScaleBasePx * STICKY_NOTE_PIN_HEAD_RADIUS_TO_BODY_FACTOR)
+        .coerceAtLeast(STICKY_NOTE_PIN_HEAD_MIN_RADIUS_PX)
+    val stemLength = (pinScaleBasePx * STICKY_NOTE_PIN_STEM_LENGTH_TO_BODY_FACTOR)
+        .coerceAtLeast(STICKY_NOTE_PIN_STEM_MIN_LENGTH_PX)
+    val strokeWidth = (pinScaleBasePx * STICKY_NOTE_PIN_STROKE_TO_BODY_FACTOR)
+        .coerceAtLeast(STICKY_NOTE_PIN_MIN_STROKE_PX)
+    drawCircle(
+        color = color,
+        radius = headRadius,
+        center = headCenter,
+    )
+    drawLine(
+        color = color,
+        start = Offset(headCenter.x, headCenter.y + headRadius * 0.7f),
+        end = Offset(headCenter.x, headCenter.y + headRadius * 0.7f + stemLength),
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round,
+    )
+}
+
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStickyNoteText(
     text: String,
     paint: AndroidPaint,
@@ -3384,6 +3554,23 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFloatingText(
                 paint,
             )
         }
+    }
+}
+
+private fun AndroidPaint.setWidgetTextColor(
+    color: Color,
+    glow: Boolean = false,
+) {
+    this.color = color.toArgb()
+    if (glow) {
+        setShadowLayer(
+            WIDGET_PRIMARY_TEXT_GLOW_RADIUS_PX,
+            0f,
+            0f,
+            color.copy(alpha = WIDGET_PRIMARY_TEXT_GLOW_ALPHA).toArgb(),
+        )
+    } else {
+        clearShadowLayer()
     }
 }
 
@@ -3626,6 +3813,33 @@ private const val STICKY_TEXT_MAX_SIZE_FRACTION = 0.32f
 private const val STICKY_TEXT_ESTIMATED_CHAR_WIDTH_FACTOR = 0.68f
 private const val STICKY_TEXT_MIN_CHARS_PER_LINE = 6
 private const val STICKY_TEXT_MAX_CHARS_PER_LINE = 30
+private const val STICKY_YELLOW_ARGB = 0xFFF9A825.toInt()
+private const val STICKY_NOTE_FILL_ALPHA = 0.96f
+private const val STICKY_NOTE_DIVIDER_ALPHA = 0.24f
+private const val STICKY_NOTE_DIVIDER_Y_FACTOR = 0.80f
+private const val STICKY_NOTE_DIVIDER_INSET_FACTOR = 0.12f
+private const val STICKY_NOTE_DIVIDER_STROKE_FACTOR = 0.0065f
+private const val STICKY_NOTE_DIVIDER_MIN_STROKE_PX = 1f
+private const val STICKY_NOTE_DIVIDER_MAX_STROKE_PX = 2f
+private const val STICKY_NOTE_HEADER_RESERVED_LINE_FACTOR = 1.55f
+private const val STICKY_NOTE_HEADER_RESERVED_PADDING_FACTOR = 1.08f
+private const val STICKY_NOTE_FOOTER_RESERVED_LINE_FACTOR = 0.70f
+private const val STICKY_NOTE_FOOTER_RESERVED_PADDING_FACTOR = 0.44f
+private const val STICKY_NOTE_META_TOP_LINE_FACTOR = 0.38f
+private const val STICKY_NOTE_META_TOP_PADDING_FACTOR = 0.78f
+private const val STICKY_NOTE_META_HORIZONTAL_INSET_FACTOR = 0.08f
+private const val STICKY_NOTE_META_TEXT_SIZE_TO_BODY_FACTOR = 0.32f
+private const val STICKY_NOTE_META_TEXT_MIN_SIZE_PX = 5f
+private const val STICKY_NOTE_PIN_MIN_BASE_TEXT_PX = 6f
+private const val STICKY_NOTE_PIN_X_FACTOR = 0.12f
+private const val STICKY_NOTE_PIN_Y_FACTOR = 0.12f
+private const val STICKY_NOTE_PIN_HEAD_RADIUS_TO_BODY_FACTOR = 0.28f
+private const val STICKY_NOTE_PIN_HEAD_MIN_RADIUS_PX = 1.4f
+private const val STICKY_NOTE_PIN_STEM_LENGTH_TO_BODY_FACTOR = 0.78f
+private const val STICKY_NOTE_PIN_STEM_MIN_LENGTH_PX = 3f
+private const val STICKY_NOTE_PIN_STROKE_TO_BODY_FACTOR = 0.12f
+private const val STICKY_NOTE_PIN_MIN_STROKE_PX = 0.8f
+private const val FRAME_TITLE_MIN_SCALE_TO_SHOW = 0.85f
 private const val SELECTION_HANDLE_DEFER_RADIUS_PX = 22f
 private val EDGE_AUTO_PAN_ZONE_DP = 72.dp
 private val EDGE_AUTO_PAN_MAX_STEP_DP = 16.dp
@@ -3667,6 +3881,11 @@ private const val WIDGET_NOTIFICATION_LINE_HEIGHT_MULTIPLIER = 1.18f
 private const val WIDGET_ELLIPSIZE_CACHE_SIZE = 512
 private const val WIDGET_HOURLY_FORECAST_ITEMS = 3
 private const val WIDGET_DAILY_FORECAST_ITEMS = 3
+private const val FRAME_BORDER_GLOW_ALPHA = 0.58f
+private const val FRAME_BORDER_GLOW_EXTRA_STROKE_PX = 2.1f
+private const val FRAME_BORDER_GLOW_RADIUS_PX = 8f
+private const val WIDGET_PRIMARY_TEXT_GLOW_ALPHA = 0.62f
+private const val WIDGET_PRIMARY_TEXT_GLOW_RADIUS_PX = 11f
 private const val WIDGET_UNAVAILABLE_VALUE = "--"
 private const val NOTIFICATION_LISTENERS_SETTING_KEY = "enabled_notification_listeners"
 private const val TEXT_ESTIMATED_CHAR_WIDTH_FACTOR = 0.58f
@@ -3679,4 +3898,3 @@ private val WIDGET_HOURLY_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
 private val WIDGET_DAILY_DAY_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("EEE", Locale.getDefault())
-

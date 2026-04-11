@@ -72,7 +72,9 @@ Apps, notes, frames, and widgets live in one shared coordinate space you can nav
 - tools/search/widgets/app-list surfaces now use translucent glass backgrounds with blur;
 - tool and action controls use circular blurred glass buttons (without inner artifact overlays);
 - widget cards on canvas render with an additional soft blur layer for clearer glass depth;
-- frame borders are thinner and color-accented to match widget border visual density.
+- frame borders are thinner and color-accented to match widget border visual density;
+- sticky notes now use frame-style color glow, a pinned header marker, and adaptive text contrast (yellow note -> black text, other note colors -> white text);
+- frame title chips are rendered only above a zoom threshold to reduce low-zoom clutter.
 
 ### Launcher core
 - onboarding flow (`DefaultActivity`) with launcher-role request and fallback path;
