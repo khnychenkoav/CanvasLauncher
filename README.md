@@ -64,7 +64,7 @@ Apps, notes, frames, and widgets live in one shared coordinate space you can nav
 | Android instrumentation test cases | 16                  |
 | Aggregate instruction coverage (Jacoco) | **81.69%**          |
 | Min SDK / Target SDK | 26 / 36             |
-| App version | 0.1.1(alpha)        |
+| App version | 0.1.1-alpha |
 | Canvas widgets | 5 implemented types |
 
 ## What Ships Today
