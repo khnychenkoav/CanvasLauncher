@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.graphics.Color
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
+import com.darksok.canvaslauncher.core.model.canvas.CanvasConstants
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
 import com.darksok.canvaslauncher.core.model.canvas.WorldPoint
 import org.junit.Rule
@@ -52,8 +53,7 @@ class InfiniteCanvasComposeTest {
     }
 
     @Test
-    fun `infinite canvas shows label when labels enabled and reveal delay passed`() {
-        composeRule.mainClock.autoAdvance = false
+    fun `infinite canvas hides labels below max zoom`() {
         composeRule.setContent {
             InfiniteCanvas(
                 cameraState = CameraState(
@@ -88,8 +88,46 @@ class InfiniteCanvasComposeTest {
                 onAppAutoPanDelta = {},
             )
         }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Canvas App").assertDoesNotExist()
+    }
 
-        composeRule.mainClock.advanceTimeBy(250L)
+    @Test
+    fun `infinite canvas shows labels at max zoom`() {
+        composeRule.setContent {
+            InfiniteCanvas(
+                cameraState = CameraState(
+                    worldCenter = WorldPoint(0f, 0f),
+                    scale = CanvasConstants.Scale.MAX_SCALE,
+                    viewportWidthPx = 1080,
+                    viewportHeightPx = 1920,
+                ),
+                apps = listOf(
+                    CanvasRenderableApp(
+                        packageName = "pkg.one",
+                        label = "Canvas App",
+                        worldPosition = WorldPoint(0f, 0f),
+                        icon = null,
+                    ),
+                ),
+                draggingPackageName = null,
+                appDragEnabled = false,
+                transformEnabled = true,
+                labelsEnabled = true,
+                backgroundConfig = CanvasBackgroundConfig(
+                    fillColor = Color(0xFFF2F2F2),
+                    dotColor = Color(0xFF444444),
+                ),
+                onViewportSizeChanged = {},
+                onTransform = { _: ScreenPoint, _: Float, _: ScreenPoint -> },
+                onAppClick = {},
+                onAppDragStart = {},
+                onAppDragDelta = { _: String, _: ScreenPoint -> },
+                onAppDragEnd = {},
+                onAppDragCancel = {},
+                onAppAutoPanDelta = {},
+            )
+        }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Canvas App").assertExists()
     }

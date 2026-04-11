@@ -53,9 +53,18 @@ object CanvasNotificationFeed {
     }
 
     private fun publish() {
-        _entries.value = entriesByKey.values
+        val latestEntries = entriesByKey.values
             .sortedByDescending { entry -> entry.postedAt }
             .take(WIDGET_NOTIFICATION_CACHE_LIMIT)
+        if (entriesByKey.size > latestEntries.size) {
+            entriesByKey.clear()
+            latestEntries.forEach { entry ->
+                entriesByKey[entry.key] = entry
+            }
+        }
+        if (_entries.value != latestEntries) {
+            _entries.value = latestEntries
+        }
     }
 }
 
@@ -81,11 +90,19 @@ private fun StatusBarNotification.toWidgetEntryOrNull(): WidgetNotificationEntry
         .joinToString(separator = " — ")
         .trim()
     if (normalized.isBlank()) return null
+    val compactText = if (normalized.length <= WIDGET_NOTIFICATION_MAX_TEXT_LENGTH) {
+        normalized
+    } else {
+        normalized
+            .take(WIDGET_NOTIFICATION_MAX_TEXT_LENGTH - 3)
+            .trimEnd() + "..."
+    }
     return WidgetNotificationEntry(
         key = key,
-        text = normalized,
+        text = compactText,
         postedAt = postTime,
     )
 }
 
 private const val WIDGET_NOTIFICATION_CACHE_LIMIT = 32
+private const val WIDGET_NOTIFICATION_MAX_TEXT_LENGTH = 180

@@ -3304,14 +3304,89 @@ private fun ellipsizeToWidth(
     paint: AndroidPaint,
     maxWidthPx: Float,
 ): String {
+    if (text.isEmpty() || maxWidthPx <= 0f) return ""
+    val normalizedWidthPx = maxWidthPx.roundToInt().coerceAtLeast(1)
+    val key = EllipsizeCacheKey(
+        text = text,
+        maxWidthPx = normalizedWidthPx,
+        textSizeBits = paint.textSize.toBits(),
+        textScaleXBits = paint.textScaleX.toBits(),
+        letterSpacingBits = paint.letterSpacing.toBits(),
+        isFakeBold = paint.isFakeBoldText,
+        typefaceHash = paint.typeface?.hashCode() ?: 0,
+    )
+    return WidgetTextEllipsizeCache.resolve(
+        key = key,
+        text = text,
+        paint = paint,
+        maxWidthPx = normalizedWidthPx.toFloat(),
+    )
+}
+
+private fun computeEllipsizedText(
+    text: String,
+    paint: AndroidPaint,
+    maxWidthPx: Float,
+): String {
     val ellipsis = "..."
     if (paint.measureText(text) <= maxWidthPx) return text
-    if (paint.measureText(ellipsis) > maxWidthPx) return ""
-    var end = text.length
-    while (end > 0 && paint.measureText(text, 0, end) + paint.measureText(ellipsis) > maxWidthPx) {
-        end--
+    val ellipsisWidth = paint.measureText(ellipsis)
+    if (ellipsisWidth > maxWidthPx) return ""
+    var low = 0
+    var high = text.length
+    while (low < high) {
+        val middle = (low + high + 1) ushr 1
+        val width = paint.measureText(text, 0, middle) + ellipsisWidth
+        if (width <= maxWidthPx) {
+            low = middle
+        } else {
+            high = middle - 1
+        }
     }
-    return text.substring(0, end).trimEnd() + ellipsis
+    return text.substring(0, low).trimEnd() + ellipsis
+}
+
+private data class EllipsizeCacheKey(
+    val text: String,
+    val maxWidthPx: Int,
+    val textSizeBits: Int,
+    val textScaleXBits: Int,
+    val letterSpacingBits: Int,
+    val isFakeBold: Boolean,
+    val typefaceHash: Int,
+)
+
+private object WidgetTextEllipsizeCache {
+    private val cache = object : LinkedHashMap<EllipsizeCacheKey, String>(
+        WIDGET_ELLIPSIZE_CACHE_SIZE + 1,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<EllipsizeCacheKey, String>?,
+        ): Boolean {
+            return size > WIDGET_ELLIPSIZE_CACHE_SIZE
+        }
+    }
+
+    @Synchronized
+    fun resolve(
+        key: EllipsizeCacheKey,
+        text: String,
+        paint: AndroidPaint,
+        maxWidthPx: Float,
+    ): String {
+        cache[key]?.let { cached ->
+            return cached
+        }
+        return computeEllipsizedText(
+            text = text,
+            paint = paint,
+            maxWidthPx = maxWidthPx,
+        ).also { computed ->
+            cache[key] = computed
+        }
+    }
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWidgetClockHand(
@@ -3442,6 +3517,7 @@ private const val WIDGET_NOTIFICATION_STATIONARY_MS = 5_000L
 private const val WIDGET_NOTIFICATION_SCROLL_MS = 850L
 private const val WIDGET_NOTIFICATION_TICKER_FRAME_MS = 48L
 private const val WIDGET_NOTIFICATION_LINE_HEIGHT_MULTIPLIER = 1.18f
+private const val WIDGET_ELLIPSIZE_CACHE_SIZE = 512
 private const val WIDGET_HOURLY_FORECAST_ITEMS = 3
 private const val WIDGET_DAILY_FORECAST_ITEMS = 3
 private const val WIDGET_UNAVAILABLE_VALUE = "--"

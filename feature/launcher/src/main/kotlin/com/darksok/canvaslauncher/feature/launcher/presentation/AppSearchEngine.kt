@@ -26,6 +26,7 @@ internal data class IndexedApp(
 internal data class SearchVariant(
     val value: String,
     val penalty: Int,
+    val words: List<String>,
 )
 
 internal data class SearchText(
@@ -133,6 +134,7 @@ object AppSearchEngine {
                 val baseScore = baseScore(
                     query = queryVariant.value,
                     target = targetVariant.value,
+                    targetWords = targetVariant.words,
                     targetTokens = target.tokens,
                 )
                 if (baseScore < 0) continue
@@ -146,6 +148,7 @@ object AppSearchEngine {
     private fun baseScore(
         query: String,
         target: String,
+        targetWords: List<String>,
         targetTokens: Set<String>,
     ): Int {
         if (target == query) return 10_000
@@ -154,10 +157,9 @@ object AppSearchEngine {
             return 9_250 - (target.length - query.length).coerceAtLeast(0)
         }
 
-        val words = target.split(' ').filter { it.isNotBlank() }
-        val wordPrefixIndex = words.indexOfFirst { it.startsWith(query) }
+        val wordPrefixIndex = targetWords.indexOfFirst { it.startsWith(query) }
         if (wordPrefixIndex >= 0) {
-            val word = words[wordPrefixIndex]
+            val word = targetWords[wordPrefixIndex]
             return 8_850 - wordPrefixIndex * 12 - (word.length - query.length).coerceAtLeast(0)
         }
 
@@ -199,25 +201,29 @@ object AppSearchEngine {
         target: String,
         targetTokens: Set<String>,
     ): Int? {
+        if (query.length < 3) return null
         val maxDistance = allowedDistance(query.length)
-        val candidates = LinkedHashSet<String>()
-        candidates += target
-        candidates += targetTokens
-
         var bestPenalty: Int? = null
-        for (candidate in candidates) {
+        fun updateBest(candidate: String) {
             val lengthDelta = abs(candidate.length - query.length)
-            if (lengthDelta > maxDistance + 2) continue
+            if (lengthDelta > maxDistance + 2) return
 
             val distance = levenshteinDistanceWithin(
                 left = query,
                 right = candidate,
                 maxDistance = maxDistance,
-            ) ?: continue
+            ) ?: return
 
             val penalty = distance * 190 + lengthDelta * 34
-            if (bestPenalty == null || penalty < bestPenalty) {
+            val currentBest = bestPenalty
+            if (currentBest == null || penalty < currentBest) {
                 bestPenalty = penalty
+            }
+        }
+        updateBest(target)
+        targetTokens.forEach { token ->
+            if (token != target) {
+                updateBest(token)
             }
         }
         return bestPenalty
@@ -275,10 +281,15 @@ object AppSearchEngine {
         base: Int,
     ): Int {
         if (queryTokens.isEmpty() || targetTokens.isEmpty()) return -1
-        val intersection = queryTokens.intersect(targetTokens)
-        if (intersection.isEmpty()) return -1
-
-        val shortest = intersection.minOf { token -> token.length }
+        val smaller = if (queryTokens.size <= targetTokens.size) queryTokens else targetTokens
+        val larger = if (queryTokens.size <= targetTokens.size) targetTokens else queryTokens
+        var shortest = Int.MAX_VALUE
+        smaller.forEach { token ->
+            if (token in larger) {
+                shortest = minOf(shortest, token.length)
+            }
+        }
+        if (shortest == Int.MAX_VALUE) return -1
         return base - shortest.coerceAtMost(10)
     }
 
@@ -316,6 +327,7 @@ object AppSearchEngine {
                 SearchVariant(
                     value = value,
                     penalty = penalty,
+                    words = splitWords(value),
                 )
             }
 
@@ -347,6 +359,14 @@ object AppSearchEngine {
                 token.length > 1 && token !in STOP_WORD_TOKENS
             }
             .toCollection(LinkedHashSet())
+    }
+
+    private fun splitWords(value: String): List<String> {
+        return value.split(' ')
+            .asSequence()
+            .map(String::trim)
+            .filter { token -> token.isNotEmpty() }
+            .toList()
     }
 
     private fun transliterateCyrillicToLatin(value: String): String {

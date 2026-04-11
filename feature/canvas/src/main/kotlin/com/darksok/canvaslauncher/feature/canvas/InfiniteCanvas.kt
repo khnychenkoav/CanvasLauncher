@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -72,7 +71,6 @@ import com.darksok.canvaslauncher.core.performance.WorldGridProjector
 import com.darksok.canvaslauncher.core.performance.WorldScreenTransformer
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 
 @Composable
 fun InfiniteCanvas(
@@ -101,34 +99,27 @@ fun InfiniteCanvas(
     val appDragAutoPanZonePx = with(density) { CanvasUiConstants.APP_DRAG_AUTO_PAN_ZONE_DP.toPx() }
     val appDragAutoPanMaxStepPx = with(density) { CanvasUiConstants.APP_DRAG_AUTO_PAN_MAX_STEP_DP.toPx() }
     var isGestureInProgress by remember { mutableStateOf(false) }
-    var labelsVisible by remember {
-        mutableStateOf(cameraState.scale >= CanvasConstants.Scale.LABEL_VISIBLE_THRESHOLD)
+    val labelsVisibleAtMaxZoom = labelsEnabled &&
+        cameraState.scale >= CanvasUiConstants.FULL_LABEL_ZOOM_THRESHOLD &&
+        !isGestureInProgress
+    val matchedAppsCount = remember(apps) {
+        apps.count { app -> app.searchVisualState == CanvasSearchVisualState.Matched }
     }
-    var labelsActivated by remember { mutableStateOf(false) }
-    LaunchedEffect(cameraState.scale) {
-        labelsVisible = LabelVisibilityPolicy.nextVisibility(
-            previousVisible = labelsVisible,
-            scale = cameraState.scale,
+    val pulseEnabled = matchedAppsCount in 1..CanvasUiConstants.MATCH_PULSE_MAX_APPS
+    val matchPulseAlphaState: State<Float> = if (pulseEnabled) {
+        val pulseTransition = rememberInfiniteTransition(label = "search-match-pulse")
+        pulseTransition.animateFloat(
+            initialValue = CanvasUiConstants.MATCH_PULSE_MIN_ALPHA,
+            targetValue = CanvasUiConstants.MATCH_PULSE_MAX_ALPHA,
+            animationSpec = infiniteRepeatable(
+                animation = tween(CanvasUiConstants.MATCH_PULSE_DURATION_MS),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "search-match-alpha",
         )
+    } else {
+        rememberUpdatedState(1f)
     }
-    LaunchedEffect(labelsEnabled) {
-        if (!labelsEnabled) {
-            labelsActivated = false
-            return@LaunchedEffect
-        }
-        delay(CanvasUiConstants.LABEL_REVEAL_DELAY_MS)
-        labelsActivated = true
-    }
-    val pulseTransition = rememberInfiniteTransition(label = "search-match-pulse")
-    val matchPulseAlphaState = pulseTransition.animateFloat(
-        initialValue = CanvasUiConstants.MATCH_PULSE_MIN_ALPHA,
-        targetValue = CanvasUiConstants.MATCH_PULSE_MAX_ALPHA,
-        animationSpec = infiniteRepeatable(
-            animation = tween(CanvasUiConstants.MATCH_PULSE_DURATION_MS),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "search-match-alpha",
-    )
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -230,8 +221,7 @@ fun InfiniteCanvas(
                     matchPulseAlphaState = matchPulseAlphaState,
                     iconSizePx = iconSizePx,
                     position = iconTopLeft,
-                    showLabel = labelsEnabled && labelsActivated && labelsVisible && !isGestureInProgress,
-                    showFullLabel = cameraState.scale >= CanvasUiConstants.FULL_LABEL_ZOOM_THRESHOLD,
+                    showLabel = labelsVisibleAtMaxZoom,
                     isDragging = draggingPackageName == app.packageName,
                     dragEnabled = appDragEnabled,
                     onClick = onAppClick,
@@ -316,7 +306,6 @@ private fun CanvasAppNode(
     iconSizePx: Float,
     position: IntOffset,
     showLabel: Boolean,
-    showFullLabel: Boolean,
     isDragging: Boolean,
     dragEnabled: Boolean,
     onClick: (String) -> Unit,
@@ -522,21 +511,12 @@ private fun CanvasAppNode(
         }
 
         if (showLabel) {
-            val labelContainerModifier = if (showFullLabel) {
-                Modifier
+            Box(
+                modifier = Modifier
                     .padding(top = CanvasUiConstants.LABEL_TOP_MARGIN_DP)
                     .wrapContentWidth(unbounded = true)
                     .clip(RoundedCornerShape(CanvasUiConstants.LABEL_CORNER_DP))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = CanvasUiConstants.LABEL_BACKGROUND_ALPHA))
-            } else {
-                Modifier
-                    .padding(top = CanvasUiConstants.LABEL_TOP_MARGIN_DP)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(CanvasUiConstants.LABEL_CORNER_DP))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = CanvasUiConstants.LABEL_BACKGROUND_ALPHA))
-            }
-            Box(
-                modifier = labelContainerModifier,
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = CanvasUiConstants.LABEL_BACKGROUND_ALPHA)),
             ) {
                 Text(
                     text = label,
@@ -544,7 +524,7 @@ private fun CanvasAppNode(
                     color = labelColor,
                     maxLines = 1,
                     softWrap = false,
-                    overflow = if (showFullLabel) TextOverflow.Clip else TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Clip,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -599,12 +579,12 @@ private object CanvasUiConstants {
     val LABEL_TOP_MARGIN_DP = 4.dp
     val LABEL_CORNER_DP = 8.dp
     const val MIN_DOT_SPACING_PX = 20f
-    const val LABEL_REVEAL_DELAY_MS = 180L
     const val DIMMED_ICON_ALPHA = 0.92f
     const val DIMMED_LABEL_ALPHA = 0.46f
     const val MATCH_PULSE_MIN_ALPHA = 0.24f
     const val MATCH_PULSE_MAX_ALPHA = 1f
-    const val MATCH_PULSE_DURATION_MS = 900
+    const val MATCH_PULSE_DURATION_MS = 680
+    const val MATCH_PULSE_MAX_APPS = 8
     const val MIN_TRANSFORM_PAN_DELTA_SQ_PX = 0.16f
     const val MIN_TRANSFORM_ZOOM_DELTA = 0.0012f
     const val SINGLE_POINTER_PAN_SLOP_MULTIPLIER = 1f

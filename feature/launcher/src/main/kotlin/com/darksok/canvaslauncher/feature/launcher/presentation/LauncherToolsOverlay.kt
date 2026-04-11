@@ -556,15 +556,32 @@ private fun SearchInputPill(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    var queryFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = query,
+                selection = TextRange(query.length),
+            ),
+        )
+    }
+    LaunchedEffect(query) {
+        if (queryFieldValue.text != query) {
+            queryFieldValue = queryFieldValue.copy(
+                text = query,
+                selection = TextRange(query.length),
+            )
+        }
+    }
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
         keyboardController?.show()
     }
 
+    val queryText = queryFieldValue.text
     val highlightColor = MaterialTheme.colorScheme.primary
-    val suggestionTextWithTheme = remember(query, suggestion, highlightColor) {
+    val suggestionTextWithTheme = remember(queryText, suggestion, highlightColor) {
         SearchSuggestionTextFormatter.build(
-            query = query,
+            query = queryText,
             suggestion = suggestion,
             highlightColor = highlightColor,
         )
@@ -597,13 +614,26 @@ private fun SearchInputPill(
             }
 
             BasicTextField(
-                value = query,
-                onValueChange = onQueryChanged,
+                value = queryFieldValue,
+                onValueChange = { updated ->
+                    val sanitizedText = updated.text.replace('\n', ' ')
+                    val pinned = updated.copy(
+                        text = sanitizedText,
+                        selection = TextRange(sanitizedText.length),
+                    )
+                    queryFieldValue = pinned
+                    if (pinned.text != query) {
+                        onQueryChanged(pinned.text)
+                    }
+                },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Search,
+                    autoCorrect = false,
+                ),
                 keyboardActions = KeyboardActions(
                     onSearch = { onSubmit() },
                 ),
@@ -613,7 +643,7 @@ private fun SearchInputPill(
                     .padding(start = 8.dp, end = 12.dp),
                 decorationBox = { innerTextField ->
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (query.isEmpty()) {
+                        if (queryText.isEmpty()) {
                             Text(
                                 text = stringResource(id = R.string.search_placeholder),
                                 style = MaterialTheme.typography.bodyLarge,
@@ -635,7 +665,7 @@ private fun SearchInputPill(
 
             ToolCircleButton(
                 onClick = {
-                    val trimmed = query.trim()
+                    val trimmed = queryText.trim()
                     if (trimmed.isNotEmpty()) {
                         onBrowserSearchClick(trimmed)
                     }
@@ -647,7 +677,7 @@ private fun SearchInputPill(
                     imageVector = Icons.Rounded.Public,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
-                        alpha = if (query.isBlank()) 0.42f else 1f,
+                        alpha = if (queryText.isBlank()) 0.42f else 1f,
                     ),
                 )
             }

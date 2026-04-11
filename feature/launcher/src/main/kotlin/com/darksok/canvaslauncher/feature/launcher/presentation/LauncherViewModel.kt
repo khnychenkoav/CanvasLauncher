@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -299,10 +300,11 @@ class LauncherViewModel @Inject constructor(
         showSearchLaunchAction,
         searchMatches,
         contactMatches,
-        contactsState,
-    ) { showLaunchAction, rankedMatches, rankedContacts, contacts ->
+        contactsState.map { contacts ->
+            contacts.associateBy { contact -> contact.searchKey }
+        },
+    ) { showLaunchAction, rankedMatches, rankedContacts, contactsBySearchKey ->
         val topMatch = rankedMatches.firstOrNull()
-        val contactsBySearchKey = contacts.associateBy { contact -> contact.searchKey }
         val topContactMatch = rankedContacts.firstOrNull()
         val topContact = topContactMatch?.let { match ->
             contactsBySearchKey[match.packageName]
@@ -1950,10 +1952,14 @@ class LauncherViewModel @Inject constructor(
 
     fun onSearchQueryChanged(query: String) {
         if (searchQuery.value == query) return
-        clearSpotlight()
-        cancelCameraFlightAnimation()
+        if (spotlightPackageName.value != null || cameraFlightJob != null) {
+            clearSpotlight()
+            cancelCameraFlightAnimation()
+        }
         searchQuery.value = query
-        showSearchLaunchAction.value = false
+        if (showSearchLaunchAction.value) {
+            showSearchLaunchAction.value = false
+        }
     }
 
     fun onSearchActionClick() {
@@ -3849,7 +3855,7 @@ class LauncherViewModel @Inject constructor(
         private const val ICON_VIEWPORT_PRIORITY_COUNT = 40
         private const val ICON_VIEWPORT_WARMUP_DEBOUNCE_MS = 220L
         private const val SEARCH_BASE_OCCLUSION_PX = 64f
-        private const val SEARCH_MATCH_DEBOUNCE_MS = 28L
+        private const val SEARCH_MATCH_DEBOUNCE_MS = 84L
         private const val SEARCH_CONTACT_KEY_PREFIX = "contact:"
         private const val SEARCH_FOCUS_OFFSET_MULTIPLIER = 0.20f
         private const val SEARCH_FOCUS_EXTRA_GAP_PX = 16f
@@ -3857,7 +3863,7 @@ class LauncherViewModel @Inject constructor(
         private const val SEARCH_MAX_FOCUS_LIFT_RATIO = 0.22f
         private const val SEARCH_KEYBOARD_TARGET_SCREEN_Y_RATIO = 0.25f
         private const val SEARCH_MIN_FOCUS_SCALE = 1.08f
-        private const val SEARCH_FLIGHT_DURATION_MS = 620L
+        private const val SEARCH_FLIGHT_DURATION_MS = 360L
         private const val SEARCH_FLIGHT_MID_PROGRESS = 0.56f
         private const val SEARCH_FLIGHT_MID_CENTER_RATIO = 0.56f
         private const val SEARCH_FLIGHT_ZOOM_MULTIPLIER = 1.16f

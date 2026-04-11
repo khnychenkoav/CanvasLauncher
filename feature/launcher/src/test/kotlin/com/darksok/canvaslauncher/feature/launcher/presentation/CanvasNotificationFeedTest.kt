@@ -122,6 +122,27 @@ class CanvasNotificationFeedTest {
         assertThat(CanvasNotificationFeed.entries.value).isEmpty()
     }
 
+    @Test
+    fun `long notification text is compacted for stable rendering`() {
+        val longText = buildString {
+            repeat(420) { append('A') }
+        }
+        CanvasNotificationFeed.replaceAll(
+            arrayOf(
+                sbn(
+                    key = "k3",
+                    postTime = 9_500L,
+                    title = "Title",
+                    text = longText,
+                ),
+            ),
+        )
+
+        val rendered = CanvasNotificationFeed.entries.value.single().text
+        assertThat(rendered.length).isAtMost(180)
+        assertThat(rendered).endsWith("...")
+    }
+
     private fun sbn(
         key: String,
         postTime: Long,

@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.darksok.canvaslauncher.feature.launcher.R
@@ -153,6 +156,23 @@ private fun AppsListSearchField(
     query: String,
     onQueryChanged: (String) -> Unit,
 ) {
+    var queryFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = query,
+                selection = TextRange(query.length),
+            ),
+        )
+    }
+    LaunchedEffect(query) {
+        if (queryFieldValue.text != query) {
+            queryFieldValue = queryFieldValue.copy(
+                text = query,
+                selection = TextRange(query.length),
+            )
+        }
+    }
+    val queryText = queryFieldValue.text
     Surface(
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
@@ -162,20 +182,33 @@ private fun AppsListSearchField(
             .height(54.dp),
     ) {
         BasicTextField(
-            value = query,
-            onValueChange = onQueryChanged,
+            value = queryFieldValue,
+            onValueChange = { updated ->
+                val sanitizedText = updated.text.replace('\n', ' ')
+                val pinned = updated.copy(
+                    text = sanitizedText,
+                    selection = TextRange(sanitizedText.length),
+                )
+                queryFieldValue = pinned
+                if (pinned.text != query) {
+                    onQueryChanged(pinned.text)
+                }
+            },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Search,
+                autoCorrect = false,
+            ),
             keyboardActions = KeyboardActions(onSearch = {}),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) {
+                    if (queryText.isEmpty()) {
                         Text(
                             text = stringResource(id = R.string.apps_list_search_placeholder),
                             style = MaterialTheme.typography.bodyLarge,
