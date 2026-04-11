@@ -55,16 +55,16 @@ Most launchers optimize for fixed pages and static icon grids. Canvas Launcher o
 Apps, notes, frames, and widgets live in one shared coordinate space you can navigate like a map.
 
 ## Snapshot (April 5, 2026)
-| Metric | Current value |
-|---|---|
-| Gradle modules | 12 |
-| Automated test files | 74 |
-| Total test cases (`@Test`) | 665 |
-| Unit test cases | 649 |
-| Android instrumentation test cases | 16 |
-| Aggregate instruction coverage (Jacoco) | **81.69%** |
-| Min SDK / Target SDK | 26 / 36 |
-| App version | 1.0.0 |
+| Metric | Current value       |
+|---|---------------------|
+| Gradle modules | 12                  |
+| Automated test files | 74                  |
+| Total test cases (`@Test`) | 665                 |
+| Unit test cases | 649                 |
+| Android instrumentation test cases | 16                  |
+| Aggregate instruction coverage (Jacoco) | **81.69%**          |
+| Min SDK / Target SDK | 26 / 36             |
+| App version | 0.1.1(alpha)        |
 | Canvas widgets | 5 implemented types |
 
 ## What Ships Today
