@@ -84,6 +84,8 @@ import com.darksok.canvaslauncher.core.ui.theme.CanvasLauncherTheme
 import com.darksok.canvaslauncher.feature.canvas.CanvasBackgroundConfig
 import com.darksok.canvaslauncher.feature.canvas.InfiniteCanvas
 import com.darksok.canvaslauncher.feature.launcher.R
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -167,6 +169,7 @@ fun LauncherRoute(
                 dotColor = colorScheme.onSurface.copy(alpha = 0.14f),
             )
         }
+        val hazeState = remember { HazeState() }
 
         Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -214,106 +217,112 @@ fun LauncherRoute(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 } else {
-                    InfiniteCanvas(
-                        cameraState = uiState.cameraState,
-                        apps = uiState.visibleApps,
-                        draggingPackageName = uiState.draggingPackageName,
-                        appDragEnabled = uiState.toolsState.isEditActive &&
-                            uiState.toolsState.edit.selectedTool == CanvasEditToolId.Move,
-                        transformEnabled = !uiState.toolsState.isEditActive && !uiState.toolsState.isWidgetsActive,
-                        labelsEnabled = true,
-                        backgroundConfig = backgroundConfig,
-                        onViewportSizeChanged = { size ->
-                            viewModel.onViewportSizeChanged(size.width, size.height)
-                        },
-                        onTransform = { pan, zoom, focus ->
-                            viewModel.onTransform(pan, zoom, focus)
-                        },
-                        onAppClick = viewModel::onAppClick,
-                        onAppDragStart = viewModel::onAppDragStart,
-                        onAppDragDelta = viewModel::onAppDragDelta,
-                        onAppDragEnd = viewModel::onAppDragEnd,
-                        onAppDragCancel = viewModel::onAppDragCancel,
-                        onAppAutoPanDelta = viewModel::onAppAutoPanDelta,
-                    )
-
-                    CanvasEditLayer(
-                        cameraState = uiState.cameraState,
-                        isEditActive = uiState.toolsState.isEditActive,
-                        isWidgetMode = uiState.toolsState.isWidgetsActive,
-                        editState = uiState.toolsState.edit,
-                        frames = uiState.frames,
-                        widgets = uiState.widgets,
-                        frameDraft = uiState.frameDraft,
-                        selectedFrameIdForResize = uiState.selectedFrameIdForResize,
-                        selectedWidgetIdForResize = uiState.selectedWidgetId,
-                        selectionDraft = uiState.selectionDraft,
-                        selectionBounds = uiState.selectionBounds,
-                        hasActiveSelection = uiState.hasActiveSelection,
-                        strokes = uiState.strokes,
-                        stickyNotes = uiState.stickyNotes,
-                        textObjects = uiState.textObjects,
-                        snapGuides = uiState.snapGuides,
-                        modifier = Modifier.fillMaxSize(),
-                        onCanvasTap = viewModel::onEditCanvasTap,
-                        onFrameDragStart = viewModel::onEditFrameDragStart,
-                        onFrameDragUpdate = viewModel::onEditFrameDragUpdate,
-                        onFrameDragEnd = viewModel::onEditFrameDragEnd,
-                        onSelectionDragStart = viewModel::onEditSelectionDragStart,
-                        onSelectionDragUpdate = viewModel::onEditSelectionDragUpdate,
-                        onSelectionDragEnd = viewModel::onEditSelectionDragEnd,
-                        onSelectionClearTap = viewModel::onEditSelectionClearTap,
-                        onSelectionLongPressAt = viewModel::onEditSelectionLongPressAt,
-                        onSelectionMoveDelta = viewModel::onEditSelectionMoveDelta,
-                        onSelectionMoveEnd = viewModel::onEditSelectionMoveEnd,
-                        onSelectionResizeStart = viewModel::onEditSelectionResizeStart,
-                        onSelectionResizeDrag = viewModel::onEditSelectionResizeDrag,
-                        onSelectionResizeEnd = viewModel::onEditSelectionResizeEnd,
-                        onSelectionDeleteTap = viewModel::onEditSelectionDeleteTap,
-                        onAutoPanDelta = viewModel::onEditAutoPanDelta,
-                        onBrushStart = viewModel::onEditBrushStart,
-                        onBrushPoint = viewModel::onEditBrushPoint,
-                        onBrushEnd = viewModel::onEditBrushEnd,
-                        onEraseAt = viewModel::onEditEraseAt,
-                        onStickyTap = viewModel::onEditStickyTap,
-                        onStickyLongPress = viewModel::onEditStickyLongPress,
-                        onTextTap = viewModel::onEditTextTap,
-                        onWidgetTap = viewModel::onWidgetTap,
-                        onWidgetBackgroundTap = viewModel::onWidgetBackgroundTap,
-                        onWidgetResizeStart = viewModel::onWidgetResizeStart,
-                        onWidgetResizeDrag = viewModel::onWidgetResizeDrag,
-                        onWidgetResizeEnd = viewModel::onWidgetResizeEnd,
-                        onWidgetDeleteTap = viewModel::onWidgetDeleteSelected,
-                        onFrameTap = viewModel::onEditFrameTap,
-                        onFrameDeleteTap = viewModel::onEditFrameDeleteTap,
-                        onMoveBackgroundTap = viewModel::onEditMoveBackgroundTap,
-                        onFrameBorderTap = viewModel::onEditFrameBorderTap,
-                        onFrameResizeStart = viewModel::onEditFrameResizeStart,
-                        onFrameResizeDrag = viewModel::onEditFrameResizeDrag,
-                        onFrameResizeEnd = viewModel::onEditFrameResizeEnd,
-                        onObjectDragStart = viewModel::onEditObjectDragStart,
-                        onObjectDragDelta = viewModel::onEditObjectDragDelta,
-                        onObjectDragEnd = viewModel::onEditObjectDragEnd,
-                        onObjectDragCancel = viewModel::onEditObjectDragCancel,
-                        onCanvasTransform = { pan, zoom, focus ->
-                            viewModel.onTransform(pan, zoom, focus)
-                        },
-                    )
-
-                    if (!uiState.toolsState.isSearchActive &&
-                        !uiState.toolsState.isAppsListActive &&
-                        !uiState.toolsState.isEditActive &&
-                        !uiState.toolsState.isWidgetsActive &&
-                        MiniMapProjector.shouldShow(uiState.cameraState.scale)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .hazeSource(state = hazeState),
                     ) {
-                        MiniMapOverlay(
-                            appPositions = uiState.allAppPositions,
+                        InfiniteCanvas(
                             cameraState = uiState.cameraState,
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .navigationBarsPadding()
-                                .padding(start = 8.dp, bottom = 4.dp),
+                            apps = uiState.visibleApps,
+                            draggingPackageName = uiState.draggingPackageName,
+                            appDragEnabled = uiState.toolsState.isEditActive &&
+                                uiState.toolsState.edit.selectedTool == CanvasEditToolId.Move,
+                            transformEnabled = !uiState.toolsState.isEditActive && !uiState.toolsState.isWidgetsActive,
+                            labelsEnabled = true,
+                            backgroundConfig = backgroundConfig,
+                            onViewportSizeChanged = { size ->
+                                viewModel.onViewportSizeChanged(size.width, size.height)
+                            },
+                            onTransform = { pan, zoom, focus ->
+                                viewModel.onTransform(pan, zoom, focus)
+                            },
+                            onAppClick = viewModel::onAppClick,
+                            onAppDragStart = viewModel::onAppDragStart,
+                            onAppDragDelta = viewModel::onAppDragDelta,
+                            onAppDragEnd = viewModel::onAppDragEnd,
+                            onAppDragCancel = viewModel::onAppDragCancel,
+                            onAppAutoPanDelta = viewModel::onAppAutoPanDelta,
                         )
+
+                        CanvasEditLayer(
+                            cameraState = uiState.cameraState,
+                            isEditActive = uiState.toolsState.isEditActive,
+                            isWidgetMode = uiState.toolsState.isWidgetsActive,
+                            editState = uiState.toolsState.edit,
+                            frames = uiState.frames,
+                            widgets = uiState.widgets,
+                            frameDraft = uiState.frameDraft,
+                            selectedFrameIdForResize = uiState.selectedFrameIdForResize,
+                            selectedWidgetIdForResize = uiState.selectedWidgetId,
+                            selectionDraft = uiState.selectionDraft,
+                            selectionBounds = uiState.selectionBounds,
+                            hasActiveSelection = uiState.hasActiveSelection,
+                            strokes = uiState.strokes,
+                            stickyNotes = uiState.stickyNotes,
+                            textObjects = uiState.textObjects,
+                            snapGuides = uiState.snapGuides,
+                            modifier = Modifier.fillMaxSize(),
+                            onCanvasTap = viewModel::onEditCanvasTap,
+                            onFrameDragStart = viewModel::onEditFrameDragStart,
+                            onFrameDragUpdate = viewModel::onEditFrameDragUpdate,
+                            onFrameDragEnd = viewModel::onEditFrameDragEnd,
+                            onSelectionDragStart = viewModel::onEditSelectionDragStart,
+                            onSelectionDragUpdate = viewModel::onEditSelectionDragUpdate,
+                            onSelectionDragEnd = viewModel::onEditSelectionDragEnd,
+                            onSelectionClearTap = viewModel::onEditSelectionClearTap,
+                            onSelectionLongPressAt = viewModel::onEditSelectionLongPressAt,
+                            onSelectionMoveDelta = viewModel::onEditSelectionMoveDelta,
+                            onSelectionMoveEnd = viewModel::onEditSelectionMoveEnd,
+                            onSelectionResizeStart = viewModel::onEditSelectionResizeStart,
+                            onSelectionResizeDrag = viewModel::onEditSelectionResizeDrag,
+                            onSelectionResizeEnd = viewModel::onEditSelectionResizeEnd,
+                            onSelectionDeleteTap = viewModel::onEditSelectionDeleteTap,
+                            onAutoPanDelta = viewModel::onEditAutoPanDelta,
+                            onBrushStart = viewModel::onEditBrushStart,
+                            onBrushPoint = viewModel::onEditBrushPoint,
+                            onBrushEnd = viewModel::onEditBrushEnd,
+                            onEraseAt = viewModel::onEditEraseAt,
+                            onStickyTap = viewModel::onEditStickyTap,
+                            onStickyLongPress = viewModel::onEditStickyLongPress,
+                            onTextTap = viewModel::onEditTextTap,
+                            onWidgetTap = viewModel::onWidgetTap,
+                            onWidgetBackgroundTap = viewModel::onWidgetBackgroundTap,
+                            onWidgetResizeStart = viewModel::onWidgetResizeStart,
+                            onWidgetResizeDrag = viewModel::onWidgetResizeDrag,
+                            onWidgetResizeEnd = viewModel::onWidgetResizeEnd,
+                            onWidgetDeleteTap = viewModel::onWidgetDeleteSelected,
+                            onFrameTap = viewModel::onEditFrameTap,
+                            onFrameDeleteTap = viewModel::onEditFrameDeleteTap,
+                            onMoveBackgroundTap = viewModel::onEditMoveBackgroundTap,
+                            onFrameBorderTap = viewModel::onEditFrameBorderTap,
+                            onFrameResizeStart = viewModel::onEditFrameResizeStart,
+                            onFrameResizeDrag = viewModel::onEditFrameResizeDrag,
+                            onFrameResizeEnd = viewModel::onEditFrameResizeEnd,
+                            onObjectDragStart = viewModel::onEditObjectDragStart,
+                            onObjectDragDelta = viewModel::onEditObjectDragDelta,
+                            onObjectDragEnd = viewModel::onEditObjectDragEnd,
+                            onObjectDragCancel = viewModel::onEditObjectDragCancel,
+                            onCanvasTransform = { pan, zoom, focus ->
+                                viewModel.onTransform(pan, zoom, focus)
+                            },
+                        )
+
+                        if (!uiState.toolsState.isSearchActive &&
+                            !uiState.toolsState.isAppsListActive &&
+                            !uiState.toolsState.isEditActive &&
+                            !uiState.toolsState.isWidgetsActive &&
+                            MiniMapProjector.shouldShow(uiState.cameraState.scale)
+                        ) {
+                            MiniMapOverlay(
+                                appPositions = uiState.allAppPositions,
+                                cameraState = uiState.cameraState,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .navigationBarsPadding()
+                                    .padding(start = 8.dp, bottom = 4.dp),
+                            )
+                        }
                     }
 
                     AnimatedVisibility(
@@ -324,6 +333,7 @@ fun LauncherRoute(
                     ) {
                         AppsListScreen(
                             state = uiState.toolsState.appsList,
+                            hazeState = hazeState,
                             modifier = Modifier.fillMaxSize(),
                             onQueryChanged = viewModel::onAppsListQueryChanged,
                             onAppClick = viewModel::onAppsListAppClick,
@@ -345,6 +355,7 @@ fun LauncherRoute(
                     if (!uiState.toolsState.isAppsListActive) {
                         LauncherToolsOverlay(
                             toolsState = uiState.toolsState,
+                            hazeState = hazeState,
                             modifier = Modifier.align(Alignment.BottomEnd),
                             onToolsToggle = viewModel::onToolsToggle,
                             onToolSelected = { tool ->

@@ -5,14 +5,20 @@ import android.content.ContentUris
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BlurMaskFilter
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Typeface
+import android.graphics.fonts.Font
+import android.graphics.fonts.FontFamily as AndroidFontFamily
+import android.graphics.fonts.FontStyle
+import android.os.Build
 import android.provider.CalendarContract
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.provider.Settings
 import android.text.format.DateFormat as AndroidDateFormat
+import androidx.annotation.FontRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -67,7 +73,6 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -78,6 +83,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.res.ResourcesCompat
+import com.darksok.canvaslauncher.core.ui.R as CoreUiR
 import com.darksok.canvaslauncher.feature.launcher.R
 import com.darksok.canvaslauncher.core.model.canvas.CameraState
 import com.darksok.canvaslauncher.core.model.canvas.ScreenPoint
@@ -166,6 +173,8 @@ fun CanvasEditLayer(
     onCanvasTransform: (panDeltaPx: ScreenPoint, zoomFactor: Float, focusPx: ScreenPoint) -> Unit,
 ) {
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val paintTypefaces = remember(context) { createCanvasPaintTypefaces(context) }
     val scale = cameraState.scale
     var isMultiTouchGestureActive by remember { mutableStateOf(false) }
     val allowsObjectMove = isEditActive &&
@@ -217,9 +226,9 @@ fun CanvasEditLayer(
         frameTitlePaint.textSize = frameTitleTextSizePx
         frameTitlePaint.color = frameTitleTextColor.toArgb()
         stickyTextPaint.color = stickyTextColor.toArgb()
-        applyPaintTypography(frameTitlePaint, typography.labelLarge)
-        applyPaintTypography(stickyTextPaint, typography.bodyMedium)
-        applyPaintTypography(canvasTextPaint, typography.bodyMedium)
+        applyPaintTypography(frameTitlePaint, typography.labelLarge, paintTypefaces)
+        applyPaintTypography(stickyTextPaint, typography.bodyMedium, paintTypefaces)
+        applyPaintTypography(canvasTextPaint, typography.bodyMedium, paintTypefaces)
     }
     val tracksMultiTouch = isEditActive || isWidgetMode
 
@@ -310,7 +319,7 @@ fun CanvasEditLayer(
                     cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
                 )
                 drawRoundRect(
-                    color = Color(item.frame.colorArgb).copy(alpha = 0.36f),
+                    color = Color(item.frame.colorArgb).copy(alpha = 0.48f),
                     topLeft = Offset(item.leftPx, item.topPx),
                     size = Size(item.widthPx, item.heightPx),
                     cornerRadius = CornerRadius(frameCornerRadiusPx, frameCornerRadiusPx),
@@ -990,6 +999,7 @@ private fun CanvasWidgetLayer(
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
+    val paintTypefaces = remember(context) { createCanvasPaintTypefaces(context) }
     val scale = cameraState.scale
     val hasAnalogWidget = remember(widgets) {
         widgets.any { widget -> widget.type == CanvasWidgetType.ClockAnalog }
@@ -1056,15 +1066,23 @@ private fun CanvasWidgetLayer(
     val frameBorderStrokePx = with(density) { FRAME_BORDER_STROKE_DP.toPx() }
     val autoPanZonePx = with(density) { EDGE_AUTO_PAN_ZONE_DP.toPx() }
     val autoPanMaxStepPx = with(density) { EDGE_AUTO_PAN_MAX_STEP_DP.toPx() }
-    val widgetFillTopColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-    val widgetFillBottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
+    val widgetFillTopColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f)
+    val widgetFillBottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.26f)
     val widgetBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    val widgetBlurTintColor = MaterialTheme.colorScheme.surface.copy(alpha = WIDGET_GLASS_BLUR_TINT_ALPHA)
     val widgetSecondaryTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
     val widgetAccentColor = MaterialTheme.colorScheme.primary
     val widgetNotificationsEnabledColor = MaterialTheme.colorScheme.primary
     val widgetNotificationsDisabledColor = MaterialTheme.colorScheme.error
     val widgetFillGradientColors = remember(widgetFillTopColor, widgetFillBottomColor) {
         listOf(widgetFillTopColor, widgetFillBottomColor)
+    }
+    val widgetGlassBlurPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.FILL
+            isDither = true
+            maskFilter = BlurMaskFilter(WIDGET_GLASS_BLUR_RADIUS_PX, BlurMaskFilter.Blur.NORMAL)
+        }
     }
 
     val widgetClockPaint = remember {
@@ -1093,10 +1111,11 @@ private fun CanvasWidgetLayer(
     }
     val typography = MaterialTheme.typography
     SideEffect {
-        applyPaintTypography(widgetClockPaint, typography.headlineMedium)
-        applyPaintTypography(widgetTitlePaint, typography.labelLarge)
-        applyPaintTypography(widgetBodyPaint, typography.titleMedium)
-        applyPaintTypography(widgetSubtitlePaint, typography.bodySmall)
+        applyPaintTypography(widgetClockPaint, typography.headlineMedium, paintTypefaces, useMono = true)
+        applyPaintTypography(widgetTitlePaint, typography.labelLarge, paintTypefaces)
+        applyPaintTypography(widgetBodyPaint, typography.titleMedium, paintTypefaces)
+        applyPaintTypography(widgetSubtitlePaint, typography.bodySmall, paintTypefaces)
+        widgetGlassBlurPaint.color = widgetBlurTintColor.toArgb()
     }
 
     val widgetLayouts = remember(widgets, cameraState) {
@@ -1168,6 +1187,18 @@ private fun CanvasWidgetLayer(
         widgetLayouts.forEach { layout ->
             val widget = layout.widget
             val cornerRadius = CornerRadius(WIDGET_CORNER_RADIUS_PX, WIDGET_CORNER_RADIUS_PX)
+            drawIntoCanvas { canvas ->
+                val blurOutset = WIDGET_GLASS_BLUR_OUTSET_PX
+                canvas.nativeCanvas.drawRoundRect(
+                    layout.leftPx - blurOutset,
+                    layout.topPx - blurOutset,
+                    layout.leftPx + layout.widthPx + blurOutset,
+                    layout.topPx + layout.heightPx + blurOutset,
+                    WIDGET_CORNER_RADIUS_PX + blurOutset,
+                    WIDGET_CORNER_RADIUS_PX + blurOutset,
+                    widgetGlassBlurPaint,
+                )
+            }
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = widgetFillGradientColors,
@@ -2300,20 +2331,133 @@ private fun hasNotificationListenerAccess(context: Context): Boolean {
 private fun applyPaintTypography(
     paint: AndroidPaint,
     style: TextStyle,
+    paintTypefaces: CanvasPaintTypefaces,
+    useMono: Boolean = false,
 ) {
-    val baseTypeface = style.fontFamily.toAndroidTypeface()
-    val isBold = (style.fontWeight ?: FontWeight.Normal).weight >= FontWeight.SemiBold.weight
-    paint.typeface = Typeface.create(baseTypeface, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+    val fontWeight = style.fontWeight ?: FontWeight.Normal
+    paint.typeface = paintTypefaces.resolve(
+        useMono = useMono,
+        fontWeight = fontWeight,
+    )
 }
 
-private fun FontFamily?.toAndroidTypeface(): Typeface {
-    return when (this) {
-        FontFamily.Monospace -> Typeface.MONOSPACE
-        FontFamily.Serif -> Typeface.SERIF
-        FontFamily.SansSerif -> Typeface.SANS_SERIF
-        FontFamily.Cursive -> Typeface.create("cursive", Typeface.NORMAL)
-        else -> Typeface.DEFAULT
+private data class CanvasPaintTypefaces(
+    val sansRegular: Typeface,
+    val sansMedium: Typeface,
+    val sansBold: Typeface,
+    val monoRegular: Typeface,
+    val monoMedium: Typeface,
+    val monoBold: Typeface,
+) {
+    fun resolve(
+        useMono: Boolean,
+        fontWeight: FontWeight,
+    ): Typeface {
+        val isBold = fontWeight.weight >= FontWeight.SemiBold.weight
+        val isMedium = !isBold && fontWeight.weight >= FontWeight.Medium.weight
+        return if (useMono) {
+            when {
+                isBold -> monoBold
+                isMedium -> monoMedium
+                else -> monoRegular
+            }
+        } else {
+            when {
+                isBold -> sansBold
+                isMedium -> sansMedium
+                else -> sansRegular
+            }
+        }
     }
+}
+
+private fun createCanvasPaintTypefaces(context: Context): CanvasPaintTypefaces {
+    return CanvasPaintTypefaces(
+        sansRegular = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_grotesk_variable,
+            fallbackResId = CoreUiR.font.noto_sans_variable,
+            weight = FontWeight.Normal.weight,
+        ),
+        sansMedium = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_grotesk_variable,
+            fallbackResId = CoreUiR.font.noto_sans_variable,
+            weight = FontWeight.Medium.weight,
+        ),
+        sansBold = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_grotesk_variable,
+            fallbackResId = CoreUiR.font.noto_sans_variable,
+            weight = FontWeight.SemiBold.weight,
+        ),
+        monoRegular = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_mono_regular,
+            fallbackResId = CoreUiR.font.noto_sans_mono_variable,
+            weight = FontWeight.Normal.weight,
+        ),
+        monoMedium = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_mono_regular,
+            fallbackResId = CoreUiR.font.noto_sans_mono_variable,
+            weight = FontWeight.Medium.weight,
+        ),
+        monoBold = createTypefaceWithFallback(
+            context = context,
+            primaryResId = CoreUiR.font.space_mono_bold,
+            fallbackResId = CoreUiR.font.noto_sans_mono_variable,
+            weight = FontWeight.Bold.weight,
+        ),
+    )
+}
+
+private fun createTypefaceWithFallback(
+    context: Context,
+    @FontRes primaryResId: Int,
+    @FontRes fallbackResId: Int,
+    weight: Int,
+): Typeface {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val api29Typeface = createTypefaceWithFallbackApi29(
+            context = context,
+            primaryResId = primaryResId,
+            fallbackResId = fallbackResId,
+            weight = weight,
+        )
+        if (api29Typeface != null) {
+            return api29Typeface
+        }
+    }
+
+    val fallbackTypeface = ResourcesCompat.getFont(context, fallbackResId)
+        ?: Typeface.DEFAULT
+    val legacyStyle = if (weight >= FontWeight.SemiBold.weight) Typeface.BOLD else Typeface.NORMAL
+    return Typeface.create(fallbackTypeface, legacyStyle)
+}
+
+private fun createTypefaceWithFallbackApi29(
+    context: Context,
+    @FontRes primaryResId: Int,
+    @FontRes fallbackResId: Int,
+    weight: Int,
+): Typeface? {
+    return runCatching {
+        val primaryFont = Font.Builder(context.resources, primaryResId)
+            .setWeight(weight)
+            .setSlant(FontStyle.FONT_SLANT_UPRIGHT)
+            .build()
+        val fallbackFont = Font.Builder(context.resources, fallbackResId)
+            .setWeight(weight)
+            .setSlant(FontStyle.FONT_SLANT_UPRIGHT)
+            .build()
+        val primaryFamily = AndroidFontFamily.Builder(primaryFont).build()
+        val fallbackFamily = AndroidFontFamily.Builder(fallbackFont).build()
+        Typeface.CustomFallbackBuilder(primaryFamily)
+            .addCustomFallback(fallbackFamily)
+            .setStyle(FontStyle(weight, FontStyle.FONT_SLANT_UPRIGHT))
+            .build()
+    }.getOrNull()
 }
 
 private fun hasCalendarPermission(context: Context): Boolean {
@@ -3463,7 +3607,7 @@ private data class WidgetLayoutState(
 )
 
 private val FRAME_CORNER_RADIUS_DP = 10.dp
-private val FRAME_BORDER_STROKE_DP = 1.8.dp
+private val FRAME_BORDER_STROKE_DP = 0.3.dp
 private val FRAME_BORDER_TAP_HIT_DP = 18.dp
 private val FRAME_RESIZE_HANDLE_TOUCH_TARGET_DP = 30.dp
 private val FRAME_RESIZE_HANDLE_VISUAL_SIZE_DP = 12.dp
@@ -3496,6 +3640,9 @@ private const val WIDGET_CLOCK_MIN_TEXT_SIZE_PX = 10f
 private const val WIDGET_CLOCK_MAX_TEXT_HEIGHT_FRACTION = 0.70f
 private const val WIDGET_CORNER_RADIUS_PX = 16f
 private const val WIDGET_BORDER_STROKE_PX = 1.4f
+private const val WIDGET_GLASS_BLUR_RADIUS_PX = 18f
+private const val WIDGET_GLASS_BLUR_OUTSET_PX = 6f
+private const val WIDGET_GLASS_BLUR_TINT_ALPHA = 0.34f
 private const val WIDGET_INFO_HORIZONTAL_PADDING_PX = 16f
 private const val WIDGET_INFO_BODY_MAX_HEIGHT_FRACTION = 0.68f
 private const val WIDGET_INFO_SUBTITLE_MAX_HEIGHT_FRACTION = 0.34f

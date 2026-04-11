@@ -9,12 +9,14 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -56,16 +59,21 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -84,11 +92,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.darksok.canvaslauncher.feature.launcher.R
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
 
 @Composable
 fun LauncherToolsOverlay(
     toolsState: ToolsUiState,
+    hazeState: HazeState?,
     modifier: Modifier = Modifier,
     onToolsToggle: () -> Unit,
     onToolSelected: (LauncherToolId) -> Unit,
@@ -148,17 +161,18 @@ fun LauncherToolsOverlay(
         onSearchKeyboardVisibilityChanged(toolsState.isSearchActive && isKeyboardVisible)
     }
 
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(bottom = bottomLiftDp)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        val closeButtonSize = ToolPanelUiConstants.BUTTON_SIZE
-        val panelMaxWidth = maxWidth
-        val panelMaxHeight = maxHeight
-        val searchFieldMaxWidth =
-            (maxWidth - closeButtonSize - ToolPanelUiConstants.SEARCH_ROW_GAP - 2.dp).coerceAtLeast(180.dp)
+    CompositionLocalProvider(LocalToolsHazeState provides hazeState) {
+        BoxWithConstraints(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(bottom = bottomLiftDp)
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            val closeButtonSize = ToolPanelUiConstants.BUTTON_SIZE
+            val panelMaxWidth = maxWidth
+            val panelMaxHeight = maxHeight
+            val searchFieldMaxWidth =
+                (maxWidth - closeButtonSize - ToolPanelUiConstants.SEARCH_ROW_GAP - 2.dp).coerceAtLeast(180.dp)
 
         Column(
             horizontalAlignment = Alignment.End,
@@ -428,6 +442,7 @@ fun LauncherToolsOverlay(
         }
     }
 }
+}
 
 @Composable
 private fun WidgetsPanelContent(
@@ -436,76 +451,112 @@ private fun WidgetsPanelContent(
     onCatalogItemSelected: (CanvasWidgetType) -> Unit,
     onClose: () -> Unit,
 ) {
+    val panelShape = RoundedCornerShape(22.dp)
     Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.96f),
-        tonalElevation = 6.dp,
+        shape = panelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 180.dp, max = panelHeight),
     ) {
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = stringResource(id = R.string.widgets_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                ToolCircleButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(42.dp),
-                    usePrimaryContainer = false,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
-
-            LazyColumn(
+        Box(modifier = Modifier.fillMaxSize()) {
+            GlassButtonBackground(
+                shape = panelShape,
+                tintColor = MaterialTheme.colorScheme.secondaryContainer.copy(
+                    alpha = ToolPanelUiConstants.GLASS_PANEL_TINT_ALPHA,
+                ),
+                blurRadius = ToolPanelUiConstants.GLASS_PANEL_BLUR_RADIUS,
+            )
+            Column(
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxHeight()
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
             ) {
-                items(widgetsState.items, key = { item -> item.id }) { item ->
-                    Surface(
-                        onClick = { onCatalogItemSelected(item.widgetType) },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        tonalElevation = 2.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("widget_catalog_item_${item.widgetType.name}"),
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.widgets_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    ToolCircleButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(42.dp),
+                        usePrimaryContainer = false,
                     ) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    itemsIndexed(
+                        items = widgetsState.items,
+                        key = { _, item -> item.id },
+                    ) { _, item ->
+                        val itemShape = RoundedCornerShape(16.dp)
+                        Surface(
+                            onClick = { onCatalogItemSelected(item.widgetType) },
+                            shape = itemShape,
+                            color = Color.Transparent,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("widget_catalog_item_${item.widgetType.name}"),
                         ) {
-                            Text(
-                                text = stringResource(id = item.titleResId),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = stringResource(id = item.subtitleResId),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f),
-                            )
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                GlassButtonBackground(
+                                    shape = itemShape,
+                                    tintColor = MaterialTheme.colorScheme.surface.copy(
+                                        alpha = ToolPanelUiConstants.GLASS_LIST_ITEM_TINT_ALPHA,
+                                    ),
+                                    blurRadius = ToolPanelUiConstants.GLASS_LIST_ITEM_BLUR_RADIUS,
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .border(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.outline.copy(
+                                                alpha = ToolPanelUiConstants.WIDGET_ITEM_BORDER_ALPHA,
+                                            ),
+                                            shape = itemShape,
+                                        ),
+                                )
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(id = item.titleResId),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = stringResource(id = item.subtitleResId),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -519,19 +570,27 @@ private fun SearchActionButton(
     text: String,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(20.dp)
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 4.dp,
+        onClick = onClick,
+        color = Color.Transparent,
+        shape = shape,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
-            .clickable(onClick = onClick),
+            .height(46.dp),
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.CenterStart,
         ) {
+            GlassButtonBackground(
+                shape = shape,
+                tintColor = MaterialTheme.colorScheme.primaryContainer.copy(
+                    alpha = ToolPanelUiConstants.GLASS_PRIMARY_TINT_ALPHA,
+                ),
+            )
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
@@ -554,6 +613,7 @@ private fun SearchInputPill(
     onBrowserSearchClick: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val searchShape = RoundedCornerShape(28.dp)
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var queryFieldValue by remember {
@@ -588,98 +648,111 @@ private fun SearchInputPill(
     }
 
     Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
-        tonalElevation = 6.dp,
+        shape = searchShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
         modifier = Modifier
             .height(ToolPanelUiConstants.BUTTON_SIZE)
             .size(width = maxWidth, height = ToolPanelUiConstants.BUTTON_SIZE),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp),
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
         ) {
-            ToolCircleButton(
-                onClick = onSearchClick,
-                modifier = Modifier.size(44.dp),
-                usePrimaryContainer = false,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-
-            BasicTextField(
-                value = queryFieldValue,
-                onValueChange = { updated ->
-                    val sanitizedText = updated.text.replace('\n', ' ')
-                    val pinned = updated.copy(
-                        text = sanitizedText,
-                        selection = TextRange(sanitizedText.length),
-                    )
-                    queryFieldValue = pinned
-                    if (pinned.text != query) {
-                        onQueryChanged(pinned.text)
-                    }
-                },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+            GlassButtonBackground(
+                shape = searchShape,
+                tintColor = MaterialTheme.colorScheme.secondaryContainer.copy(
+                    alpha = ToolPanelUiConstants.GLASS_PANEL_TINT_ALPHA,
                 ),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Search,
-                    autoCorrect = false,
-                ),
-                keyboardActions = KeyboardActions(
-                    onSearch = { onSubmit() },
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
-                    .padding(start = 8.dp, end = 12.dp),
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (queryText.isEmpty()) {
-                            Text(
-                                text = stringResource(id = R.string.search_placeholder),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.48f),
-                                maxLines = 1,
-                            )
-                        } else if (suggestionTextWithTheme != null) {
-                            Text(
-                                text = suggestionTextWithTheme,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.46f),
-                                maxLines = 1,
-                            )
-                        }
-                        innerTextField()
-                    }
-                },
+                blurRadius = ToolPanelUiConstants.GLASS_PANEL_BLUR_RADIUS,
             )
-
-            ToolCircleButton(
-                onClick = {
-                    val trimmed = queryText.trim()
-                    if (trimmed.isNotEmpty()) {
-                        onBrowserSearchClick(trimmed)
-                    }
-                },
-                modifier = Modifier.size(40.dp),
-                usePrimaryContainer = false,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Public,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
-                        alpha = if (queryText.isBlank()) 0.42f else 1f,
+                ToolCircleButton(
+                    onClick = onSearchClick,
+                    modifier = Modifier.size(44.dp),
+                    usePrimaryContainer = false,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+
+                BasicTextField(
+                    value = queryFieldValue,
+                    onValueChange = { updated ->
+                        val sanitizedText = updated.text.replace('\n', ' ')
+                        val pinned = updated.copy(
+                            text = sanitizedText,
+                            selection = TextRange(sanitizedText.length),
+                        )
+                        queryFieldValue = pinned
+                        if (pinned.text != query) {
+                            onQueryChanged(pinned.text)
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                     ),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Search,
+                        autoCorrect = false,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { onSubmit() },
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .padding(start = 8.dp, end = 12.dp),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (queryText.isEmpty()) {
+                                Text(
+                                    text = stringResource(id = R.string.search_placeholder),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.48f),
+                                    maxLines = 1,
+                                )
+                            } else if (suggestionTextWithTheme != null) {
+                                Text(
+                                    text = suggestionTextWithTheme,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.46f),
+                                    maxLines = 1,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
                 )
+
+                ToolCircleButton(
+                    onClick = {
+                        val trimmed = queryText.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onBrowserSearchClick(trimmed)
+                        }
+                    },
+                    modifier = Modifier.size(40.dp),
+                    usePrimaryContainer = false,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Public,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                            alpha = if (queryText.isBlank()) 0.42f else 1f,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -991,26 +1064,38 @@ private fun EditPanelContent(
         Surface(
             onClick = onClearCustomElements,
             shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
-            tonalElevation = 3.dp,
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            shadowElevation = 2.dp,
             modifier = Modifier.height(40.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 12.dp),
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Delete,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                GlassButtonBackground(
+                    shape = RoundedCornerShape(14.dp),
+                    tintColor = MaterialTheme.colorScheme.errorContainer.copy(
+                        alpha = ToolPanelUiConstants.GLASS_ERROR_TINT_ALPHA,
+                    ),
                 )
-                Text(
-                    text = stringResource(R.string.edit_clear_custom_elements),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    maxLines = 1,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        text = stringResource(R.string.edit_clear_custom_elements),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 1,
+                    )
+                }
             }
         }
 
@@ -1041,6 +1126,7 @@ private fun EditInlineEditorPill(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val inlineEditorShape = RoundedCornerShape(20.dp)
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val isMultilineInput = when (state.target) {
@@ -1082,105 +1168,115 @@ private fun EditInlineEditorPill(
         }
     }
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
-        tonalElevation = 6.dp,
+        shape = inlineEditorShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
         modifier = Modifier
             .width(maxWidth)
             .heightIn(min = INLINE_EDITOR_MULTILINE_MIN_HEIGHT, max = 196.dp),
     ) {
-        Row(
-            verticalAlignment = if (isMultilineInput) Alignment.Bottom else Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-        ) {
-            TextField(
-                value = editorValue,
-                onValueChange = { updated ->
-                    val sanitized = if (isMultilineInput) {
-                        updated
-                    } else {
-                        val sanitizedText = updated.text.replace('\n', ' ')
-                        val cursor = updated.selection.end.coerceIn(0, sanitizedText.length)
-                        updated.copy(
-                            text = sanitizedText,
-                            selection = TextRange(cursor),
-                            composition = null,
-                        )
-                    }
-                    editorValue = sanitized
-                    if (sanitized.text != state.value) {
-                        onValueChanged(sanitized.text)
-                    }
-                },
-                singleLine = !isMultilineInput,
-                maxLines = if (isMultilineInput) INLINE_EDITOR_MAX_LINES else 1,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+        Box(modifier = Modifier.fillMaxSize()) {
+            GlassButtonBackground(
+                shape = inlineEditorShape,
+                tintColor = MaterialTheme.colorScheme.secondaryContainer.copy(
+                    alpha = ToolPanelUiConstants.GLASS_INLINE_EDITOR_TINT_ALPHA,
                 ),
-                placeholder = {
-                    if (placeholderText.isNotBlank()) {
-                        Text(
-                            text = placeholderText,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
-                        )
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    imeAction = if (isMultilineInput) ImeAction.Default else ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        if (!isMultilineInput) {
-                            onConfirm()
+                blurRadius = ToolPanelUiConstants.GLASS_PANEL_BLUR_RADIUS,
+            )
+            Row(
+                verticalAlignment = if (isMultilineInput) Alignment.Bottom else Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+            ) {
+                TextField(
+                    value = editorValue,
+                    onValueChange = { updated ->
+                        val sanitized = if (isMultilineInput) {
+                            updated
+                        } else {
+                            val sanitizedText = updated.text.replace('\n', ' ')
+                            val cursor = updated.selection.end.coerceIn(0, sanitizedText.length)
+                            updated.copy(
+                                text = sanitizedText,
+                                selection = TextRange(cursor),
+                                composition = null,
+                            )
+                        }
+                        editorValue = sanitized
+                        if (sanitized.text != state.value) {
+                            onValueChanged(sanitized.text)
                         }
                     },
-                ),
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    disabledTextColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.56f),
-                    cursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    errorCursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
-                    .padding(vertical = 2.dp),
-            )
-            ToolCircleButton(
-                onClick = onConfirm,
-                modifier = Modifier
-                    .padding(start = 6.dp)
-                    .size(38.dp),
-                usePrimaryContainer = false,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    singleLine = !isMultilineInput,
+                    maxLines = if (isMultilineInput) INLINE_EDITOR_MAX_LINES else 1,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                    placeholder = {
+                        if (placeholderText.isNotBlank()) {
+                            Text(
+                                text = placeholderText,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.52f),
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = if (isMultilineInput) ImeAction.Default else ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (!isMultilineInput) {
+                                onConfirm()
+                            }
+                        },
+                    ),
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        disabledTextColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.56f),
+                        cursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        errorCursorColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .padding(vertical = 2.dp),
                 )
-            }
-            ToolCircleButton(
-                onClick = onCancel,
-                modifier = Modifier
-                    .padding(start = 6.dp)
-                    .size(38.dp),
-                usePrimaryContainer = false,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                ToolCircleButton(
+                    onClick = onConfirm,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(38.dp),
+                    usePrimaryContainer = false,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+                ToolCircleButton(
+                    onClick = onCancel,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(38.dp),
+                    usePrimaryContainer = false,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
             }
         }
     }
@@ -1218,22 +1314,117 @@ private fun ToolCircleButton(
     usePrimaryContainer: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val tintColor = if (usePrimaryContainer) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = ToolPanelUiConstants.GLASS_PRIMARY_TINT_ALPHA)
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = ToolPanelUiConstants.GLASS_SECONDARY_TINT_ALPHA)
+    }
+    val blurTint = tintColor.copy(alpha = ToolPanelUiConstants.CIRCLE_GLASS_BLUR_TINT_ALPHA)
+    val hazeState = LocalToolsHazeState.current
+    val hazeStyle = remember(blurTint) {
+        HazeStyle(
+            backgroundColor = Color.Transparent,
+            tint = HazeTint(blurTint),
+            blurRadius = ToolPanelUiConstants.CIRCLE_GLASS_BLUR_RADIUS,
+            noiseFactor = ToolPanelUiConstants.CIRCLE_GLASS_NOISE_FACTOR,
+            fallbackTint = HazeTint(blurTint),
+        )
+    }
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = if (usePrimaryContainer) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.96f)
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.96f)
-        },
-        tonalElevation = 6.dp,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
         modifier = modifier,
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val hazeBackdropModifier = if (hazeState != null) {
+                Modifier.hazeEffect(state = hazeState, style = hazeStyle)
+            } else {
+                Modifier.background(blurTint.copy(alpha = 0.35f))
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .then(hazeBackdropModifier),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(tintColor.copy(alpha = ToolPanelUiConstants.CIRCLE_GLASS_BASE_ALPHA))
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = ToolPanelUiConstants.CIRCLE_STROKE_ALPHA),
+                        shape = CircleShape,
+                    ),
+            )
             content()
         }
     }
 }
+
+@Composable
+private fun GlassButtonBackground(
+    shape: Shape,
+    tintColor: Color,
+    blurRadius: androidx.compose.ui.unit.Dp = ToolPanelUiConstants.GLASS_BLUR_RADIUS,
+    modifier: Modifier = Modifier,
+) {
+    val hazeState = LocalToolsHazeState.current
+    val hazeStyle = remember(tintColor, blurRadius) {
+        HazeStyle(
+            backgroundColor = Color.Transparent,
+            tint = HazeTint(tintColor),
+            blurRadius = blurRadius,
+            noiseFactor = ToolPanelUiConstants.GLASS_NOISE_FACTOR,
+            fallbackTint = HazeTint(tintColor.copy(alpha = ToolPanelUiConstants.GLASS_FALLBACK_ALPHA)),
+        )
+    }
+    val hazeBackdropModifier = if (hazeState != null) {
+        Modifier.hazeEffect(state = hazeState, style = hazeStyle)
+    } else {
+        Modifier.background(tintColor.copy(alpha = ToolPanelUiConstants.GLASS_FALLBACK_ALPHA))
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .then(hazeBackdropModifier),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = ToolPanelUiConstants.GLASS_HIGHLIGHT_ALPHA),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = ToolPanelUiConstants.GLASS_STROKE_ALPHA),
+                    shape = shape,
+                ),
+        )
+    }
+}
+
+private val LocalToolsHazeState = staticCompositionLocalOf<HazeState?> { null }
 
 internal object SearchSuggestionTextFormatter {
     fun build(
@@ -1266,4 +1457,23 @@ private object ToolPanelUiConstants {
     val BUTTON_SIZE = 56.dp
     val SEARCH_ROW_GAP = 10.dp
     val ITEM_GAP = 10.dp
+    val GLASS_BLUR_RADIUS = 22.dp
+    val GLASS_PANEL_BLUR_RADIUS = 26.dp
+    val GLASS_LIST_ITEM_BLUR_RADIUS = 18.dp
+    const val GLASS_NOISE_FACTOR = 0.04f
+    const val GLASS_FALLBACK_ALPHA = 0.30f
+    const val GLASS_HIGHLIGHT_ALPHA = 0.18f
+    const val GLASS_STROKE_ALPHA = 0.22f
+    const val GLASS_PRIMARY_TINT_ALPHA = 0.30f
+    const val GLASS_SECONDARY_TINT_ALPHA = 0.28f
+    const val GLASS_ERROR_TINT_ALPHA = 0.30f
+    const val GLASS_PANEL_TINT_ALPHA = 0.24f
+    const val GLASS_LIST_ITEM_TINT_ALPHA = 0.18f
+    const val GLASS_INLINE_EDITOR_TINT_ALPHA = 0.22f
+    const val WIDGET_ITEM_BORDER_ALPHA = 0.34f
+    const val CIRCLE_STROKE_ALPHA = 0.18f
+    val CIRCLE_GLASS_BLUR_RADIUS = 24.dp
+    const val CIRCLE_GLASS_NOISE_FACTOR = 0.04f
+    const val CIRCLE_GLASS_BLUR_TINT_ALPHA = 0.38f
+    const val CIRCLE_GLASS_BASE_ALPHA = 0.12f
 }

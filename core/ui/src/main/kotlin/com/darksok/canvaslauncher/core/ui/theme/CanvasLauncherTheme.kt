@@ -3,12 +3,17 @@ package com.darksok.canvaslauncher.core.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import com.darksok.canvaslauncher.core.model.ui.DarkThemePalette
 import com.darksok.canvaslauncher.core.model.ui.LightThemePalette
+import com.darksok.canvaslauncher.core.ui.R
 
 @Composable
 fun CanvasLauncherTheme(
@@ -23,9 +28,50 @@ fun CanvasLauncherTheme(
             lightPalette = lightPalette,
             darkPalette = darkPalette,
         ),
+        typography = canvasLauncherTypography,
         content = content,
     )
 }
+
+private val spaceGroteskFamily = FontFamily(
+    Font(resId = R.font.space_grotesk_variable, weight = FontWeight.Normal),
+    Font(resId = R.font.space_grotesk_variable, weight = FontWeight.Medium),
+    Font(resId = R.font.space_grotesk_variable, weight = FontWeight.SemiBold),
+    Font(resId = R.font.space_grotesk_variable, weight = FontWeight.Bold),
+    Font(resId = R.font.noto_sans_variable, weight = FontWeight.Normal),
+    Font(resId = R.font.noto_sans_variable, weight = FontWeight.Medium),
+    Font(resId = R.font.noto_sans_variable, weight = FontWeight.SemiBold),
+    Font(resId = R.font.noto_sans_variable, weight = FontWeight.Bold),
+)
+
+private val spaceMonoFamily = FontFamily(
+    Font(resId = R.font.space_mono_regular, weight = FontWeight.Normal),
+    Font(resId = R.font.space_mono_bold, weight = FontWeight.Bold),
+    Font(resId = R.font.noto_sans_mono_variable, weight = FontWeight.Normal),
+    Font(resId = R.font.noto_sans_mono_variable, weight = FontWeight.Medium),
+    Font(resId = R.font.noto_sans_mono_variable, weight = FontWeight.SemiBold),
+    Font(resId = R.font.noto_sans_mono_variable, weight = FontWeight.Bold),
+)
+
+private val defaultTypography = Typography()
+
+private val canvasLauncherTypography = Typography(
+    displayLarge = defaultTypography.displayLarge.copy(fontFamily = spaceGroteskFamily),
+    displayMedium = defaultTypography.displayMedium.copy(fontFamily = spaceGroteskFamily),
+    displaySmall = defaultTypography.displaySmall.copy(fontFamily = spaceGroteskFamily),
+    headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = spaceGroteskFamily),
+    headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = spaceGroteskFamily),
+    headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = spaceGroteskFamily),
+    titleLarge = defaultTypography.titleLarge.copy(fontFamily = spaceGroteskFamily),
+    titleMedium = defaultTypography.titleMedium.copy(fontFamily = spaceGroteskFamily),
+    titleSmall = defaultTypography.titleSmall.copy(fontFamily = spaceGroteskFamily),
+    bodyLarge = defaultTypography.bodyLarge.copy(fontFamily = spaceGroteskFamily),
+    bodyMedium = defaultTypography.bodyMedium.copy(fontFamily = spaceGroteskFamily),
+    bodySmall = defaultTypography.bodySmall.copy(fontFamily = spaceGroteskFamily),
+    labelLarge = defaultTypography.labelLarge.copy(fontFamily = spaceMonoFamily),
+    labelMedium = defaultTypography.labelMedium.copy(fontFamily = spaceMonoFamily),
+    labelSmall = defaultTypography.labelSmall.copy(fontFamily = spaceMonoFamily),
+)
 
 fun lightPalettePreviewColors(palette: LightThemePalette): List<Color> {
     val spec = palette.toSpec()

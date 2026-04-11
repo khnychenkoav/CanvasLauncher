@@ -62,6 +62,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.runtime)
+    implementation("dev.chrisbanes.haze:haze:1.5.4")
     implementation(project(":core:database"))
 
     ksp(libs.hilt.compiler)
