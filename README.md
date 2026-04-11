@@ -47,6 +47,13 @@ Apps, notes, frames, and widgets live in one shared coordinate space you can nav
 | Canvas widgets | 5 implemented types |
 
 ## What Ships Today
+### Visual style refresh (latest)
+- global typography now uses `Space Grotesk` + `Space Mono` with Unicode fallback fonts for non-Latin locales;
+- tools/search/widgets/app-list surfaces now use translucent glass backgrounds with blur;
+- tool and action controls use circular blurred glass buttons (without inner artifact overlays);
+- widget cards on canvas render with an additional soft blur layer for clearer glass depth;
+- frame borders are thinner and color-accented to match widget border visual density.
+
 ### Launcher core
 - onboarding flow (`DefaultActivity`) with launcher-role request and fallback path;
 - production `HOME` activity (`MainActivity`) with `singleTask` launcher behavior;
@@ -82,8 +89,8 @@ Related platform integration is wired:
 
 ### App discovery and management
 - direct app launch from canvas;
-- searchable app panel with "show on canvas";
-- uninstall action from in-app management flow;
+- searchable app panel with inline long-press quick actions;
+- inline quick actions in app rows: `show on canvas` and `uninstall`;
 - ranked search overlay with quick top-result launch;
 - optional web fallback search from launcher input.
 
@@ -96,12 +103,14 @@ Related platform integration is wired:
 ### Personalization
 - theme modes: system / light / dark;
 - 4 light palettes + 4 dark palettes;
+- typography preset: `Space Grotesk` + `Space Mono` (with wide-locale fallback coverage);
 - language modes: system, English, Russian, Spanish, German, French, Portuguese (Brazil).
 
 ## Engineering Focus: Optimization Work Already Landed
 - viewport culling in `core:performance` to avoid over-drawing offscreen app icons;
 - cache stack for app icons: in-memory LRU + disk cache + batched preload + in-flight deduplication;
 - predictable layout placement with collision-safe fallback search for dense app sets;
+- blur effects tuned for runtime stability: shared haze layers, lightweight fallback paths, low-overdraw widget blur pass;
 - modular dependency graph that keeps feature code isolated and testable;
 - release build with shrinking/optimization enabled (`isMinifyEnabled = true` for release).
 
