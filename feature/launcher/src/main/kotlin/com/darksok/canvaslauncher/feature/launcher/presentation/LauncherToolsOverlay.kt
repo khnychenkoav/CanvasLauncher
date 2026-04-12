@@ -2,6 +2,11 @@ package com.darksok.canvaslauncher.feature.launcher.presentation
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,12 +74,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -89,6 +98,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.darksok.canvaslauncher.core.ui.theme.primaryTextGlowShadow
@@ -243,7 +253,7 @@ fun LauncherToolsOverlay(
                                 onBrowserSearchClick = onSearchOpenInBrowser,
                                 onSubmit = onSearchSubmit,
                             )
-                            ToolCircleButton(
+                            ToolRoundedButton(
                                 onClick = {
                                     keyboardController?.hide()
                                     onSearchClose()
@@ -251,6 +261,7 @@ fun LauncherToolsOverlay(
                                 modifier = Modifier
                                     .padding(start = ToolPanelUiConstants.SEARCH_ROW_GAP)
                                     .size(ToolPanelUiConstants.BUTTON_SIZE),
+                                cornerRadius = ToolPanelUiConstants.SEARCH_BUTTON_CORNER_RADIUS,
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Close,
@@ -289,152 +300,169 @@ fun LauncherToolsOverlay(
 
                     else -> {
                         val quickTools = toolsState.tools.filterNot { it.id == LauncherToolId.Search }
-                        val quickToolsRows = quickTools.chunked(2)
+                        val toolRows = quickTools.chunked(2)
+                        val panelButtonSize = ToolPanelUiConstants.TOOLS_PANEL_BUTTON_SIZE
+                        val panelItemGap = ToolPanelUiConstants.TOOLS_PANEL_ITEM_GAP
+                        val panelPadding = ToolPanelUiConstants.TOOLS_PANEL_CONTENT_PADDING
                         val singleLayerQuickToolsHeight =
-                            (ToolPanelUiConstants.BUTTON_SIZE * quickTools.size) +
-                                (ToolPanelUiConstants.ITEM_GAP * (quickTools.size - 1).coerceAtLeast(0))
+                            (panelButtonSize * quickTools.size) +
+                                (panelItemGap * (quickTools.size - 1).coerceAtLeast(0))
                         val twoLayerQuickToolsHeight =
-                            (ToolPanelUiConstants.BUTTON_SIZE * quickToolsRows.size) +
-                                (ToolPanelUiConstants.ITEM_GAP * (quickToolsRows.size - 1).coerceAtLeast(0))
-                        val panelControlsBaseHeight = (ToolPanelUiConstants.BUTTON_SIZE * 2) +
-                            (ToolPanelUiConstants.ITEM_GAP * 2)
-                        val useTwoLayerQuickTools = toolsState.isExpanded &&
-                            quickTools.size > 2 &&
-                            panelControlsBaseHeight + singleLayerQuickToolsHeight > panelMaxHeight &&
-                            panelControlsBaseHeight + twoLayerQuickToolsHeight <= panelMaxHeight
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(ToolPanelUiConstants.ITEM_GAP),
-                        ) {
-                            ToolCircleButton(
-                                onClick = { onToolSelected(LauncherToolId.Search) },
-                                modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            (panelButtonSize * toolRows.size) +
+                                (panelItemGap * (toolRows.size - 1).coerceAtLeast(0))
+                        val collapsedPanelControlsHeight = (panelButtonSize * 2) + panelItemGap
+                        val expandedPanelControlsHeight = (panelButtonSize * 2) + (panelItemGap * 2)
+                        val expandedPanelOneColumnHeight =
+                            expandedPanelControlsHeight +
+                                singleLayerQuickToolsHeight +
+                                (panelPadding * 2)
+                        val expandedPanelTwoColumnHeight =
+                            expandedPanelControlsHeight +
+                                twoLayerQuickToolsHeight +
+                                (panelPadding * 2)
+                        val useTwoLayerQuickTools = quickTools.size > 2 &&
+                            expandedPanelOneColumnHeight > panelMaxHeight &&
+                            expandedPanelTwoColumnHeight <= panelMaxHeight
+                        val expandedQuickToolsHeight = if (useTwoLayerQuickTools) {
+                            twoLayerQuickToolsHeight
+                        } else {
+                            singleLayerQuickToolsHeight
+                        }
+                        val expandedPanelContentHeight = if (quickTools.isNotEmpty()) {
+                            expandedPanelControlsHeight + expandedQuickToolsHeight
+                        } else {
+                            collapsedPanelControlsHeight
+                        }
+                        val expandedPanelHeight =
+                            (expandedPanelContentHeight + (panelPadding * 2)).coerceAtMost(panelMaxHeight)
+                        val collapsedPanelHeight = collapsedPanelControlsHeight + (panelPadding * 2)
+                        val panelShape = RoundedCornerShape(ToolPanelUiConstants.PANEL_CORNER_RADIUS)
+                        val expandedPanelWidth = if (useTwoLayerQuickTools) {
+                            (panelButtonSize * 2) + panelItemGap + (panelPadding * 2)
+                        } else {
+                            panelButtonSize + (panelPadding * 2)
+                        }
+                        val collapsedPanelWidth = panelButtonSize + (panelPadding * 2)
+                        val panelTransition = updateTransition(
+                            targetState = toolsState.isExpanded && quickTools.isNotEmpty(),
+                            label = "tools-panel-transition",
+                        )
+                        val expansionProgress by panelTransition.animateFloat(
+                            transitionSpec = {
+                                tween(
+                                    durationMillis = ToolPanelUiConstants.PANEL_EXPAND_ANIMATION_DURATION_MS,
+                                    easing = FastOutSlowInEasing,
                                 )
-                            }
-
-                            AnimatedVisibility(
-                                visible = toolsState.isExpanded,
-                                enter = fadeIn() +
-                                    slideInVertically(initialOffsetY = { it / 2 }) +
-                                    expandVertically(expandFrom = Alignment.Bottom),
-                                exit = fadeOut() +
-                                    slideOutVertically(targetOffsetY = { it / 2 }) +
-                                    shrinkVertically(shrinkTowards = Alignment.Bottom),
-                            ) {
+                            },
+                            label = "tools-panel-progress",
+                        ) { expanded -> if (expanded) 1f else 0f }
+                        val panelHeight = lerp(collapsedPanelHeight, expandedPanelHeight, expansionProgress)
+                        val panelWidth = lerp(collapsedPanelWidth, expandedPanelWidth, expansionProgress)
+                        val quickToolsRevealHeight = expandedQuickToolsHeight * expansionProgress
+                        Surface(
+                            shape = panelShape,
+                            color = Color.Transparent,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 2.dp,
+                            modifier = Modifier
+                                .width(panelWidth)
+                                .height(panelHeight)
+                                .animateContentSize(),
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                GlassButtonBackground(
+                                    shape = panelShape,
+                                    tintColor = MaterialTheme.colorScheme.secondaryContainer.copy(
+                                        alpha = ToolPanelUiConstants.GLASS_PANEL_TINT_ALPHA,
+                                    ),
+                                    blurRadius = ToolPanelUiConstants.GLASS_PANEL_BLUR_RADIUS,
+                                )
                                 Column(
                                     horizontalAlignment = Alignment.End,
-                                    verticalArrangement = Arrangement.spacedBy(ToolPanelUiConstants.ITEM_GAP),
+                                    verticalArrangement = Arrangement.spacedBy(panelItemGap),
+                                    modifier = Modifier.padding(panelPadding),
                                 ) {
-                                    if (useTwoLayerQuickTools) {
-                                        quickToolsRows.forEach { toolsRow ->
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                toolsRow.forEach { tool ->
-                                                    ToolCircleButton(
-                                                        onClick = { onToolSelected(tool.id) },
-                                                        modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
+                                    ToolPanelIconButton(
+                                        onClick = { onToolSelected(LauncherToolId.Search) },
+                                        modifier = Modifier.size(panelButtonSize),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Search,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
+
+                                    Box(
+                                        contentAlignment = Alignment.BottomEnd,
+                                        modifier = Modifier
+                                            .height(quickToolsRevealHeight)
+                                            .clipToBounds(),
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.End,
+                                            verticalArrangement = Arrangement.spacedBy(panelItemGap),
+                                            modifier = Modifier
+                                                .alpha(expansionProgress)
+                                                .offset(
+                                                    y = ToolPanelUiConstants.PANEL_REVEAL_OFFSET *
+                                                        (1f - expansionProgress),
+                                                ),
+                                        ) {
+                                            if (useTwoLayerQuickTools) {
+                                                toolRows.forEach { toolsRow ->
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(panelItemGap),
                                                     ) {
-                                                        when (tool.id) {
-                                                            LauncherToolId.AppsList -> {
-                                                                Icon(
-                                                                    imageVector = Icons.AutoMirrored.Rounded.ViewList,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                )
+                                                        toolsRow.forEach { tool ->
+                                                            ToolPanelIconButton(
+                                                                onClick = { onToolSelected(tool.id) },
+                                                                modifier = Modifier.size(panelButtonSize),
+                                                            ) {
+                                                                launcherToolIcon(tool.id)?.let { icon ->
+                                                                    Icon(
+                                                                        imageVector = icon,
+                                                                        contentDescription = null,
+                                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                    )
+                                                                }
                                                             }
-
-                                                            LauncherToolId.Edit -> {
-                                                                Icon(
-                                                                    imageVector = Icons.Rounded.Edit,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                )
-                                                            }
-
-                                                            LauncherToolId.Settings -> {
-                                                                Icon(
-                                                                    imageVector = Icons.Rounded.Settings,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                )
-                                                            }
-
-                                                            LauncherToolId.Widgets -> {
-                                                                Icon(
-                                                                    imageVector = Icons.Rounded.Widgets,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                )
-                                                            }
-
-                                                            LauncherToolId.Search -> Unit
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                quickTools.forEach { tool ->
+                                                    ToolPanelIconButton(
+                                                        onClick = { onToolSelected(tool.id) },
+                                                        modifier = Modifier.size(panelButtonSize),
+                                                    ) {
+                                                        launcherToolIcon(tool.id)?.let { icon ->
+                                                            Icon(
+                                                                imageVector = icon,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                            )
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                    } else {
-                                        quickTools.forEach { tool ->
-                                            ToolCircleButton(
-                                                onClick = { onToolSelected(tool.id) },
-                                                modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
-                                            ) {
-                                                when (tool.id) {
-                                                    LauncherToolId.AppsList -> {
-                                                        Icon(
-                                                            imageVector = Icons.AutoMirrored.Rounded.ViewList,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        )
-                                                    }
-
-                                                    LauncherToolId.Edit -> {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Edit,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        )
-                                                    }
-
-                                                    LauncherToolId.Settings -> {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Settings,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        )
-                                                    }
-
-                                                    LauncherToolId.Widgets -> {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Widgets,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        )
-                                                    }
-
-                                                    LauncherToolId.Search -> Unit
-                                                }
-                                            }
-                                        }
+                                    }
+                                    ToolPanelIconButton(
+                                        onClick = onToolsToggle,
+                                        modifier = Modifier.size(panelButtonSize),
+                                    ) {
+                                        Icon(
+                                            imageVector = if (toolsState.isExpanded) {
+                                                Icons.Rounded.Close
+                                            } else {
+                                                Icons.Rounded.Apps
+                                            },
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
                                     }
                                 }
-                            }
-                            ToolCircleButton(
-                                onClick = onToolsToggle,
-                                modifier = Modifier.size(ToolPanelUiConstants.BUTTON_SIZE),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Apps,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
                             }
                         }
                     }
@@ -571,7 +599,7 @@ private fun SearchActionButton(
     text: String,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(ToolPanelUiConstants.SEARCH_PANEL_CORNER_RADIUS)
     Surface(
         onClick = onClick,
         color = Color.Transparent,
@@ -614,7 +642,7 @@ private fun SearchInputPill(
     onBrowserSearchClick: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    val searchShape = RoundedCornerShape(28.dp)
+    val searchShape = RoundedCornerShape(ToolPanelUiConstants.SEARCH_PANEL_CORNER_RADIUS)
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var queryFieldValue by remember {
@@ -674,9 +702,10 @@ private fun SearchInputPill(
                     .fillMaxSize()
                     .padding(horizontal = 6.dp),
             ) {
-                ToolCircleButton(
+                ToolRoundedButton(
                     onClick = onSearchClick,
                     modifier = Modifier.size(44.dp),
+                    cornerRadius = ToolPanelUiConstants.SEARCH_BUTTON_CORNER_RADIUS,
                     usePrimaryContainer = false,
                 ) {
                     Icon(
@@ -736,7 +765,7 @@ private fun SearchInputPill(
                     },
                 )
 
-                ToolCircleButton(
+                ToolRoundedButton(
                     onClick = {
                         val trimmed = queryText.trim()
                         if (trimmed.isNotEmpty()) {
@@ -744,6 +773,7 @@ private fun SearchInputPill(
                         }
                     },
                     modifier = Modifier.size(40.dp),
+                    cornerRadius = ToolPanelUiConstants.SEARCH_BUTTON_CORNER_RADIUS,
                     usePrimaryContainer = false,
                 ) {
                     Icon(
@@ -1371,6 +1401,102 @@ private fun ToolCircleButton(
 }
 
 @Composable
+private fun ToolRoundedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    cornerRadius: androidx.compose.ui.unit.Dp = ToolPanelUiConstants.SEARCH_BUTTON_CORNER_RADIUS,
+    usePrimaryContainer: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(cornerRadius)
+    val tintColor = if (usePrimaryContainer) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = ToolPanelUiConstants.GLASS_PRIMARY_TINT_ALPHA)
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = ToolPanelUiConstants.GLASS_SECONDARY_TINT_ALPHA)
+    }
+    val blurTint = tintColor.copy(alpha = ToolPanelUiConstants.CIRCLE_GLASS_BLUR_TINT_ALPHA)
+    val hazeState = LocalToolsHazeState.current
+    val hazeStyle = remember(blurTint) {
+        HazeStyle(
+            backgroundColor = Color.Transparent,
+            tint = HazeTint(blurTint),
+            blurRadius = ToolPanelUiConstants.CIRCLE_GLASS_BLUR_RADIUS,
+            noiseFactor = ToolPanelUiConstants.CIRCLE_GLASS_NOISE_FACTOR,
+            fallbackTint = HazeTint(blurTint),
+        )
+    }
+    Surface(
+        onClick = onClick,
+        shape = shape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        modifier = modifier,
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val hazeBackdropModifier = if (hazeState != null) {
+                Modifier.hazeEffect(state = hazeState, style = hazeStyle)
+            } else {
+                Modifier.background(blurTint.copy(alpha = 0.35f))
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .then(hazeBackdropModifier),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .background(tintColor.copy(alpha = ToolPanelUiConstants.CIRCLE_GLASS_BASE_ALPHA))
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = ToolPanelUiConstants.CIRCLE_STROKE_ALPHA),
+                        shape = shape,
+                    ),
+            )
+            content()
+        }
+    }
+}
+
+private fun launcherToolIcon(toolId: LauncherToolId): ImageVector? {
+    return when (toolId) {
+        LauncherToolId.AppsList -> Icons.AutoMirrored.Rounded.ViewList
+        LauncherToolId.Edit -> Icons.Rounded.Edit
+        LauncherToolId.Settings -> Icons.Rounded.Settings
+        LauncherToolId.Widgets -> Icons.Rounded.Widgets
+        LauncherToolId.Search -> null
+    }
+}
+
+@Composable
+private fun ToolPanelIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(ToolPanelUiConstants.PANEL_HIT_TARGET_CORNER_RADIUS),
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            modifier = Modifier.fillMaxSize(),
+        ) {}
+        content()
+    }
+}
+
+@Composable
 private fun GlassButtonBackground(
     shape: Shape,
     tintColor: Color,
@@ -1457,6 +1583,16 @@ private val INLINE_EDITOR_MULTILINE_MIN_HEIGHT = 132.dp
 
 private object ToolPanelUiConstants {
     val BUTTON_SIZE = 56.dp
+    val PANEL_CORNER_RADIUS = 10.dp
+    val PANEL_HIT_TARGET_CORNER_RADIUS = 8.dp
+    val PANEL_CONTENT_PADDING = 8.dp
+    val TOOLS_PANEL_BUTTON_SIZE = 48.dp
+    val TOOLS_PANEL_ITEM_GAP = 8.dp
+    val TOOLS_PANEL_CONTENT_PADDING = 6.dp
+    val PANEL_REVEAL_OFFSET = 10.dp
+    const val PANEL_EXPAND_ANIMATION_DURATION_MS = 300
+    val SEARCH_PANEL_CORNER_RADIUS = 10.dp
+    val SEARCH_BUTTON_CORNER_RADIUS = 10.dp
     val SEARCH_ROW_GAP = 10.dp
     val ITEM_GAP = 10.dp
     val GLASS_BLUR_RADIUS = 22.dp
