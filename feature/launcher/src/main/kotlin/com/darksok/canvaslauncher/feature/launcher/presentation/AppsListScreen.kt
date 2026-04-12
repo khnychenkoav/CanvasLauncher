@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -55,9 +54,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -283,6 +284,7 @@ private fun AppListRow(
 ) {
     val iconImage = remember(item.icon) { item.icon?.asImageBitmap() }
     val rowShape = RoundedCornerShape(16.dp)
+    val appIconShape = RoundedCornerShape(10.dp)
     Surface(
         shape = rowShape,
         color = Color.Transparent,
@@ -320,7 +322,7 @@ private fun AppListRow(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .clip(CircleShape)
+                        .clip(appIconShape)
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -328,7 +330,9 @@ private fun AppListRow(
                         Image(
                             bitmap = iconImage,
                             contentDescription = item.label,
-                            modifier = Modifier.size(36.dp),
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = FilterQuality.Medium,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     } else {
                         Text(
@@ -399,6 +403,7 @@ private fun InlineActionCircleButton(
     onClick: () -> Unit,
     isDestructive: Boolean = false,
 ) {
+    val actionIconShape = RoundedCornerShape(10.dp)
     val background = if (isDestructive) {
         MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.34f)
     } else {
@@ -410,7 +415,7 @@ private fun InlineActionCircleButton(
         MaterialTheme.colorScheme.onSecondaryContainer
     }
     Surface(
-        shape = CircleShape,
+        shape = actionIconShape,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -423,7 +428,7 @@ private fun InlineActionCircleButton(
             contentAlignment = Alignment.Center,
         ) {
             GlassBackdrop(
-                shape = CircleShape,
+                shape = actionIconShape,
                 tintColor = background,
                 blurRadius = AppsListGlassDefaults.itemBlurRadius,
             )

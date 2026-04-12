@@ -66,7 +66,7 @@ class LruIconCacheGatewayContractTest {
     fun `gateway defines expected disk cache directory and batch constants`() {
         val source = source()
 
-        assertThat(source).contains("const val DISK_CACHE_DIR = \"icon_cache_v1\"")
+        assertThat(source).contains("const val DISK_CACHE_DIR = \"icon_cache_v7\"")
         assertThat(source).contains("const val PRELOAD_PARALLELISM = 4")
         assertThat(source).contains("const val PRELOAD_BATCH_SIZE = 20")
     }

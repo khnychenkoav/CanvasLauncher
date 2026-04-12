@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -43,8 +42,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
@@ -106,6 +107,7 @@ fun InfiniteCanvas(
         apps.count { app -> app.searchVisualState == CanvasSearchVisualState.Matched }
     }
     val pulseEnabled = matchedAppsCount in 1..CanvasUiConstants.MATCH_PULSE_MAX_APPS
+    val highQualityIcons = cameraState.scale >= CanvasUiConstants.HIGH_QUALITY_ICON_SCALE_THRESHOLD
     val matchPulseAlphaState: State<Float> = if (pulseEnabled) {
         val pulseTransition = rememberInfiniteTransition(label = "search-match-pulse")
         pulseTransition.animateFloat(
@@ -235,6 +237,7 @@ fun InfiniteCanvas(
                     canvasHeightPx = cameraState.viewportHeightPx.toFloat(),
                     autoPanZonePx = appDragAutoPanZonePx,
                     autoPanMaxStepPx = appDragAutoPanMaxStepPx,
+                    highQualityIcons = highQualityIcons,
                 )
             }
         }
@@ -319,6 +322,7 @@ private fun CanvasAppNode(
     canvasHeightPx: Float,
     autoPanZonePx: Float,
     autoPanMaxStepPx: Float,
+    highQualityIcons: Boolean,
 ) {
     val pulseAlpha = if (searchVisualState == CanvasSearchVisualState.Matched) matchPulseAlphaState.value else 1f
     val bitmap: ImageBitmap? = remember(iconBitmap) { iconBitmap?.asImageBitmap() }
@@ -327,7 +331,13 @@ private fun CanvasAppNode(
             ColorMatrix().apply { setToSaturation(0f) },
         )
     }
-    val iconSizeDp = with(LocalDensity.current) { iconSizePx.toDp() }
+    val density = LocalDensity.current
+    val iconSizeDp = with(density) { iconSizePx.toDp() }
+    val iconCornerDp = with(density) {
+        val maxCornerPx = CanvasUiConstants.APP_ICON_CORNER_MAX_DP.toPx()
+        val scaledCornerPx = iconSizePx * CanvasUiConstants.APP_ICON_CORNER_FRACTION
+        minOf(maxCornerPx, scaledCornerPx).toDp()
+    }
     val viewConfiguration = LocalViewConfiguration.current
     val touchSlopPx = viewConfiguration.touchSlop
     val longPressTimeoutMillis = viewConfiguration.longPressTimeoutMillis
@@ -450,6 +460,7 @@ private fun CanvasAppNode(
             fraction = pulseAlpha,
         )
     }
+    val iconFilterQuality = if (highQualityIcons) FilterQuality.High else FilterQuality.None
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -459,10 +470,11 @@ private fun CanvasAppNode(
             .zIndex(if (isDragging) 2f else 1f)
             .then(interactionModifier),
     ) {
+        val appIconShape = RoundedCornerShape(iconCornerDp)
         Box(
             modifier = Modifier
                 .size(iconSizeDp)
-                .clip(CircleShape)
+                .clip(appIconShape)
                 .background(
                     if (isDragging) {
                         MaterialTheme.colorScheme.primary.copy(alpha = CanvasUiConstants.DRAG_HIGHLIGHT_ALPHA)
@@ -477,6 +489,8 @@ private fun CanvasAppNode(
                         Image(
                             bitmap = bitmap,
                             contentDescription = label,
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = iconFilterQuality,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -487,6 +501,8 @@ private fun CanvasAppNode(
                             contentDescription = label,
                             colorFilter = grayscaleFilter,
                             alpha = CanvasUiConstants.DIMMED_ICON_ALPHA,
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = iconFilterQuality,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -497,12 +513,16 @@ private fun CanvasAppNode(
                             contentDescription = label,
                             colorFilter = grayscaleFilter,
                             alpha = CanvasUiConstants.DIMMED_ICON_ALPHA,
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = iconFilterQuality,
                             modifier = Modifier.fillMaxSize(),
                         )
                         Image(
                             bitmap = bitmap,
                             contentDescription = label,
                             alpha = pulseAlpha,
+                            contentScale = ContentScale.FillBounds,
+                            filterQuality = iconFilterQuality,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -572,6 +592,8 @@ private fun edgeAutoPanDelta(
 
 private object CanvasUiConstants {
     val EDGE_GESTURE_GUARD_DP = 20.dp
+    val APP_ICON_CORNER_MAX_DP = 10.dp
+    const val APP_ICON_CORNER_FRACTION = 0.33f
     const val MIN_ICON_SIZE_PX = 32f
     const val MAX_ICON_SIZE_PX = 220f
     const val DRAG_HIGHLIGHT_ALPHA = 0.20f
@@ -587,6 +609,7 @@ private object CanvasUiConstants {
     const val MATCH_PULSE_MAX_APPS = 8
     const val MIN_TRANSFORM_PAN_DELTA_SQ_PX = 0.16f
     const val MIN_TRANSFORM_ZOOM_DELTA = 0.0012f
+    const val HIGH_QUALITY_ICON_SCALE_THRESHOLD = CanvasConstants.Scale.MAX_SCALE - 0.08f
     const val SINGLE_POINTER_PAN_SLOP_MULTIPLIER = 1f
     const val APP_DRAG_START_SLOP_MULTIPLIER = 1f
     const val FULL_LABEL_ZOOM_THRESHOLD = CanvasConstants.Scale.MAX_SCALE - 0.01f
